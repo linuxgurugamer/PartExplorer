@@ -19,7 +19,7 @@ namespace PartExplorer
         private const int CategorySelectorPopupId = 921736;
         private const int ExportWindowId = 921739;
         private const int SettingsWindowId = 921740;
-        private const string CurrentVersion = "0.1.74";
+        private const string CurrentVersion = "0.1.75";
         internal const string ModId = "PartExplorer";
         internal const string ModName = "Part Explorer";
         private const string ToolbarButtonId = "PartExplorerButton";
@@ -77,7 +77,7 @@ namespace PartExplorer
         // Export window state. Exporting always uses the already-cached PartRecord
         // data; opening this window never rebuilds the KSP part database.
         private bool exportVisible;
-        private Rect exportWindowRect = new Rect(220f, 120f, 700f, 690f);
+        private Rect exportWindowRect = new Rect(220f, 120f, 700f, 600f);
         private Vector2 exportFieldScroll;
         private PartExportScope exportScope = PartExportScope.CurrentResults;
         private PartExportFormat exportFormat = PartExportFormat.Csv;
@@ -487,7 +487,7 @@ namespace PartExplorer
             if (exportVisible)
             {
                 exportWindowRect = ClickThruBlocker.GUILayoutWindow(ExportWindowId, exportWindowRect, DrawExportWindow, "Export Parts",
-                    GUILayout.Width(700f), GUILayout.Height(690f));
+                    GUILayout.Width(700f), GUILayout.Height(600f));
                 exportWindowRect.x = Mathf.Clamp(exportWindowRect.x, 0f, Mathf.Max(0f, Screen.width - exportWindowRect.width));
                 exportWindowRect.y = Mathf.Clamp(exportWindowRect.y, 0f, Mathf.Max(0f, Screen.height - 40f));
             }
@@ -4008,7 +4008,7 @@ namespace PartExplorer
             exportVisible = true;
 
             float width = 700f;
-            float height = 690f;
+            float height = 600f;
             exportWindowRect.width = width;
             exportWindowRect.height = height;
             exportWindowRect.x = Mathf.Clamp(windowRect.center.x - width * 0.5f, 0f, Mathf.Max(0f, Screen.width - width));
@@ -4086,7 +4086,7 @@ namespace PartExplorer
                     GUILayout.FlexibleSpace();
                 }
 
-                exportFieldScroll = GUILayout.BeginScrollView(exportFieldScroll, GUI.skin.box, GUILayout.Height(220f));
+                exportFieldScroll = GUILayout.BeginScrollView(exportFieldScroll, GUI.skin.box, GUILayout.Height(130f));
                 PartExportField[] values = (PartExportField[])Enum.GetValues(typeof(PartExportField));
                 for (int i = 0; i < values.Length; i += 2)
                 {
