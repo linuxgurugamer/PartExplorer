@@ -39,7 +39,7 @@
 3:README.md,GameData/PartsReference
 
 # 4:SOURCDIR, DESTDIR
-4:Manual,GameData/PartsReference/Manual
+#4:Manual,GameData/PartsReference/Manual
 
 
 # 5:ModuleManager
