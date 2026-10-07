@@ -4,8 +4,8 @@
     <File Path="deploy.bat" />
     <File Path="jenkins.txt" />
     <File Path="License.md" />
-    <File Path="PartsReference.version" />
+    <File Path="PartExplorer.version" />
     <File Path="README.md" />
   </Folder>
-  <Project Path="PartsReference/PartsReference.csproj" Id="a1c85d2e-4f9b-0f5b-0dfa-649e98afefef" />
+  <Project Path="PartExplorer/PartExplorer.csproj" Id="a1c85d2e-4f9b-0f5b-0dfa-649e98afefef" />
 </Solution>

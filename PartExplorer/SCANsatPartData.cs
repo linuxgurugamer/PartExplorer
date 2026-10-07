@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace PartsReference
+namespace PartExplorer
 {
     /// <summary>
     /// Owns all SCANsat-specific part/module parsing and the embedded SCANsat fallback data.

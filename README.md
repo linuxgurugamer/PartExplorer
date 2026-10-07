@@ -1,15 +1,15 @@
-# Parts Reference
+# Part Explorer
 
-PartsReference is a utility mod for KSP1 which is intended to make browsing, inspecting, filtering and comparing the parts that are installed in your game a lot easier. Rather than having to go through the editor's catalog or the individual part configuration files, PartsReference shows the loaded part database in a searchable and sortable table, including thumbnails, filters by category and mod, integration with the editor's filter options, and a detailed information panel for each part you have selected.
+PartExplorer is a utility mod for KSP1 which is intended to make browsing, inspecting, filtering and comparing the parts that are installed in your game a lot easier. Rather than having to go through the editor's catalog or the individual part configuration files, PartExplorer shows the loaded part database in a searchable and sortable table, including thumbnails, filters by category and mod, integration with the editor's filter options, and a detailed information panel for each part you have selected.
 
-The Details pane gathers a wide variety of information concerning a part, covering fundamental properties such as mass, cost, temperature limits, resources, command capabilities, reaction wheels, SAS, antennas, cargo properties, science modules, and all other data available from supported stock modules. PartsReference also provides improved support for SCANsat and a configurable ScienceMods system which is able to detect and show information from a number of science-related mods. The various sections and the individual fields can be customized in order that the interface will display only the information you are interested in.
+The Details pane gathers a wide variety of information concerning a part, covering fundamental properties such as mass, cost, temperature limits, resources, command capabilities, reaction wheels, SAS, antennas, cargo properties, science modules, and all other data available from supported stock modules. PartExplorer also provides improved support for SCANsat and a configurable ScienceMods system which is able to detect and show information from a number of science-related mods. The various sections and the individual fields can be customized in order that the interface will display only the information you are interested in.
 
-The PartsReference system also features a strong comparison facility. Parts can be chosen directly from the main list and be shown side by side in the Compare tab, with each property appearing in its own row. It is possible to hide the rows that have identical values, highlight the ones with different values, and optionally display low/high indicators as well as deltas in relation to the first part selected. The widths of the comparison columns can be adjusted between Compact, Normal, and Wide arrangements, which makes it feasible to compare anything from a pair of engines to a larger set of similar science instruments or antennas.
+The PartExplorer system also features a strong comparison facility. Parts can be chosen directly from the main list and be shown side by side in the Compare tab, with each property appearing in its own row. It is possible to hide the rows that have identical values, highlight the ones with different values, and optionally display low/high indicators as well as deltas in relation to the first part selected. The widths of the comparison columns can be adjusted between Compact, Normal, and Wide arrangements, which makes it feasible to compare anything from a pair of engines to a larger set of similar science instruments or antennas.
 
-For those who have heavily modified their installation, PartsReference includes a number of extra features such as a Mods summary page which displays the number of parts loaded and the science support that is recognised, the ability to quickly filter by installed mod, editor-aware filtering, persistent settings, rotating previews of the parts, and the option to insert a part directly into the VAB or SPH. Parts can also be selected with a right-click to carry out quick actions such as adding them to the editor or comparison list and copying their internal part ID or configuration path. The aim is to offer a single, convenient reference tool for use both in regular gameplay and in mod development.
+For those who have heavily modified their installation, PartExplorer includes a number of extra features such as a Mods summary page which displays the number of parts loaded and the science support that is recognised, the ability to quickly filter by installed mod, editor-aware filtering, persistent settings, rotating previews of the parts, and the option to insert a part directly into the VAB or SPH. Parts can also be selected with a right-click to carry out quick actions such as adding them to the editor or comparison list and copying their internal part ID or configuration path. The aim is to offer a single, convenient reference tool for use both in regular gameplay and in mod development.
 
 - Parts-list column headings remain pinned while the part rows scroll vertically; horizontal scrolling stays synchronized with the table.
-Parts Reference is a KSP 1 part browser and reference window. It can browse the parts supplied by any installed mod, while retaining additional SCANsat-specific information when a part contains SCANsat scanner modules.
+Part Explorer is a KSP 1 part browser and reference window. It can browse the parts supplied by any installed mod, while retaining additional SCANsat-specific information when a part contains SCANsat scanner modules.
 
 ## Features
 
@@ -22,7 +22,7 @@ Parts Reference is a KSP 1 part browser and reference window. It can browse the 
 - Context-sensitive SCANsat filters for Biome, Altimeter, Visual, Resource, Anomaly, and Requires Daylight. They are only shown when SCANsat is selected or the current part list contains SCANsat scanner parts.
 - Sort by the visible table columns.
 - Select parts for comparison with the leftmost **Compare** checkbox column. Selections remain intact while sorting and filtering; the Parts tab includes a **Clear** button for clearing all selections.
-- Use the **Compare** tab to view selected parts as columns with Details-pane values arranged as comparison rows. The top-level **Filtered only** toggle applies KSP's active editor filters on top of PartsReference's own filters throughout the mod; hidden comparison selections are retained.
+- Use the **Compare** tab to view selected parts as columns with Details-pane values arranged as comparison rows. The top-level **Filtered only** toggle applies KSP's active editor filters on top of PartExplorer's own filters throughout the mod; hidden comparison selections are retained.
 - Compare can optionally **highlight differing rows** and hide identical rows with **Differences only**, making similar parts easier to compare.
 - Compare part columns can be switched between **Compact**, **Normal**, and **Wide** widths; the choice is saved between sessions.
 - The **Mods** tab summarizes loaded mods, part counts, and detected ScienceMods/stock-science data. Clicking a mod immediately applies that Mod filter and returns to Parts.
@@ -95,7 +95,7 @@ These filters combine with the selected mod, category, and text filter.
 
 Additional science PartModules are defined by `.cfg` files in:
 
-`GameData/PartsReference/PluginData/ScienceMods`
+`GameData/PartExplorer/PluginData/ScienceMods`
 
 Each definition identifies a `ModuleName` and one or more fields to display. For example:
 

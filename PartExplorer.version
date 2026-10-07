@@ -1,11 +1,11 @@
 ﻿{
-  "NAME": "PartsReference",
-  "URL": "https://raw.githubusercontent.com/linuxgurugamer/PartsReference/refs/heads/master/PartsReference.version",
-  "DOWNLOAD": "https://github.com/linuxgurugamer/PartsReference/releases",
+  "NAME": "PartExplorer",
+  "URL": "https://raw.githubusercontent.com/linuxgurugamer/PartExplorer/refs/heads/master/PartExplorer.version",
+  "DOWNLOAD": "https://github.com/linuxgurugamer/PartExplorer/releases",
   "VERSION": {
     "MAJOR": 0,
     "MINOR": 1,
-    "PATCH": 63,
+    "PATCH": 64,
     "BUILD": 0
   },
   "KSP_VERSION": {

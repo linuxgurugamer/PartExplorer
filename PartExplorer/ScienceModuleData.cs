@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using UnityEngine;
 
-namespace PartsReference
+namespace PartExplorer
 {
     internal sealed class ScienceFieldValue
     {
@@ -62,7 +62,7 @@ namespace PartsReference
         {
             get
             {
-                return Path.Combine(KSPUtil.ApplicationRootPath, "GameData", "PartsReference", "PluginData", "ScienceMods");
+                return Path.Combine(KSPUtil.ApplicationRootPath, "GameData", "PartExplorer", "PluginData", "ScienceMods");
             }
         }
 
@@ -75,7 +75,7 @@ namespace PartsReference
                 if (!Directory.Exists(ConfigDirectory))
                 {
                     Directory.CreateDirectory(ConfigDirectory);
-                    Debug.Log("[PartsReference] Created ScienceMods directory: " + ConfigDirectory);
+                    Debug.Log("[PartExplorer] Created ScienceMods directory: " + ConfigDirectory);
                     return;
                 }
 
@@ -91,7 +91,7 @@ namespace PartsReference
                                 continue;
 
                             if (Definitions.ContainsKey(definition.ModuleName))
-                                Debug.LogWarning("[PartsReference] Duplicate ScienceMods definition for " +
+                                Debug.LogWarning("[PartExplorer] Duplicate ScienceMods definition for " +
                                     definition.ModuleName + "; replacing the earlier definition with " + Path.GetFileName(file));
 
                             Definitions[definition.ModuleName] = definition;
@@ -99,16 +99,16 @@ namespace PartsReference
                     }
                     catch (Exception ex)
                     {
-                        Debug.LogWarning("[PartsReference] Unable to load science module config '" + file + "': " + ex.Message);
+                        Debug.LogWarning("[PartExplorer] Unable to load science module config '" + file + "': " + ex.Message);
                     }
                 }
 
-                Debug.Log("[PartsReference] Loaded " + DefinitionCount.ToString(CultureInfo.InvariantCulture) +
+                Debug.Log("[PartExplorer] Loaded " + DefinitionCount.ToString(CultureInfo.InvariantCulture) +
                     " science module definition(s) from PluginData/ScienceMods");
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[PartsReference] Unable to load ScienceMods definitions: " + ex.Message);
+                Debug.LogWarning("[PartExplorer] Unable to load ScienceMods definitions: " + ex.Message);
             }
         }
 

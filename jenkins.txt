@@ -28,18 +28,18 @@
 # 0:1.3
 
 # 1:GAMEDIR, VERSIONFILE [, GITHUBREPO ]
-1:PartsReference, PartsReference.version
+1:PartExplorer, PartExplorer.version
 
 # 2:PROJNAME, PROJFILE, VERSIONFILE, PLUGINSFOLDER
-2:PartsReference,PartsReference/PartsReference.csproj,PartsReference.version,GameData/PartsReference/Plugins
+2:PartExplorer,PartExplorer/PartExplorer.csproj,PartExplorer.version,GameData/PartExplorer/Plugins
 
 # 3:SOURCEFILE, DESTDIR
-3:PartsReference.version,GameData/PartsReference
-3:License.md,GameData/PartsReference
-3:README.md,GameData/PartsReference
+3:PartExplorer.version,GameData/PartExplorer
+3:License.md,GameData/PartExplorer
+3:README.md,GameData/PartExplorer
 
 # 4:SOURCDIR, DESTDIR
-#4:Manual,GameData/PartsReference/Manual
+#4:Manual,GameData/PartExplorer/Manual
 
 
 # 5:ModuleManager

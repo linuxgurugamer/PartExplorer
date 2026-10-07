@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace PartsReference
+namespace PartExplorer
 {
     /// <summary>
     /// Extracts stock KSP part/module information used by the Details pane.

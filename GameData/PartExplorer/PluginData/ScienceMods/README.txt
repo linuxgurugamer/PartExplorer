@@ -30,7 +30,7 @@ expField_#_TitleField
 Resource handling
 -----------------
 Resource nodes do not normally need to be listed in the ScienceMods file.
-For a matched science module, Parts Reference automatically detects:
+For a matched science module, Part Explorer automatically detects:
 
     INPUT_RESOURCE / INPUTRESOURCE
     OUTPUT_RESOURCE / OUTPUTRESOURCE

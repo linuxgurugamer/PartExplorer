@@ -14,7 +14,7 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
-namespace PartsReference
+namespace PartExplorer
 {
     [KSPAddon(KSPAddon.Startup.Instantly, true)]
     internal class Startup : MonoBehaviour
@@ -40,8 +40,8 @@ namespace PartsReference
     [KSPAddon(KSPAddon.Startup.MainMenu, true)]
     internal class InstallChecker : MonoBehaviour
     {
-        private const string MODNAME = "PartsReference";
-        private const string FOLDERNAME = "PartsReference";
+        private const string MODNAME = "PartExplorer";
+        private const string FOLDERNAME = "PartExplorer";
         private const string EXPECTEDPATH = FOLDERNAME + "/Plugins";
 
         protected void Start()

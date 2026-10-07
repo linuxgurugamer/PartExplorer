@@ -8,19 +8,19 @@ using System.Linq;
 using ToolbarControl_NS;
 using UnityEngine;
 
-namespace PartsReference
+namespace PartExplorer
 {
     [KSPAddon(KSPAddon.Startup.Instantly, true)]
-    public sealed class PartsReferenceAddon : MonoBehaviour
+    public sealed class PartExplorerAddon : MonoBehaviour
     {
         private const int WindowId = 921734;
         private const int ModSelectorPopupId = 921735;
         private const int CategorySelectorPopupId = 921736;
-        internal const string ModId = "PartsReference";
-        internal const string ModName = "Parts Reference";
-        private const string ToolbarButtonId = "PartsReferenceButton";
-        private const string ToolbarIcon38 = "PartsReference/PluginData/toolbar_icon";
-        private const string ToolbarIcon24 = "PartsReference/PluginData/toolbar_icon_24";
+        internal const string ModId = "PartExplorer";
+        internal const string ModName = "Part Explorer";
+        private const string ToolbarButtonId = "PartExplorerButton";
+        private const string ToolbarIcon38 = "PartExplorer/PluginData/toolbar_icon";
+        private const string ToolbarIcon24 = "PartExplorer/PluginData/toolbar_icon_24";
         private const float MinWindowWidth = 820f;
         private const float MinWindowHeight = 500f;
         private const float MinLeftPaneWidth = 320f;
@@ -89,7 +89,7 @@ namespace PartsReference
         private HashSet<AvailablePart> editorVisiblePartsCache;
 
         // Fast AvailablePart lookups. These avoid repeatedly scanning the full
-        // PartLoader list for every visible PartsReference row.
+        // PartLoader list for every visible PartExplorer row.
         private readonly Dictionary<string, AvailablePart> availablePartByPath =
             new Dictionary<string, AvailablePart>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, AvailablePart> availablePartById =
@@ -313,7 +313,7 @@ namespace PartsReference
             windowRect.width = windowWidth;
             windowRect.height = windowHeight;
 
-            Rect actualWindowRect = ClickThruBlocker.GUILayoutWindow(WindowId, windowRect, DrawWindow, "Parts Reference",
+            Rect actualWindowRect = ClickThruBlocker.GUILayoutWindow(WindowId, windowRect, DrawWindow, "Part Explorer",
                 GUILayout.Width(windowWidth), GUILayout.Height(windowHeight),
                 GUILayout.MinWidth(MinWindowWidth), GUILayout.MinHeight(MinWindowHeight));
 
@@ -489,7 +489,7 @@ namespace PartsReference
                 {
                     GUILayout.FlexibleSpace();
 
-                    // Decorative PartsReference icon.  Keep this in the header layout so
+                    // Decorative PartExplorer icon.  Keep this in the header layout so
                     // it occupies real space and never covers or intercepts controls below.
                     if (windowIconTexture != null)
                         GUILayout.Label(windowIconTexture, GUIStyle.none, GUILayout.Width(WindowIconSize), GUILayout.Height(WindowIconSize));
@@ -592,7 +592,7 @@ namespace PartsReference
             bool newFilteredOnly = GUILayout.Toggle(
                 filteredOnly,
                 new GUIContent("Filtered only",
-                    "When enabled in the VAB/SPH, PartsReference shows only parts that pass both its own filters and KSP's active editor filters."),
+                    "When enabled in the VAB/SPH, PartExplorer shows only parts that pass both its own filters and KSP's active editor filters."),
                 GUILayout.Width(110f));
             if (newFilteredOnly != filteredOnly)
             {
@@ -823,7 +823,7 @@ namespace PartsReference
 
             // Never run KSP's editor filter chain from OnGUI. Update() maintains
             // this cache on a short interval. If a cache is temporarily unavailable,
-            // keep the PartsReference list usable rather than blocking the GUI.
+            // keep the PartExplorer list usable rather than blocking the GUI.
             if (!editorFilterCacheValid || editorVisiblePartsCache == null)
                 return parts;
 
@@ -912,7 +912,7 @@ namespace PartsReference
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[PartsReference] Unable to apply editor part filters: " + ex.Message);
+                Debug.LogWarning("[PartExplorer] Unable to apply editor part filters: " + ex.Message);
                 editorVisiblePartsCache = null;
                 editorFilterStateKey = string.Empty;
                 editorFilterCacheValid = false;
@@ -962,7 +962,7 @@ namespace PartsReference
         private bool ShouldShowScanSatFilters()
         {
             // Show SCANsat-specific controls only when the current part universe,
-            // after PartsReference Mod/Category/text filters and the optional KSP
+            // after PartExplorer Mod/Category/text filters and the optional KSP
             // editor filters have been applied, still contains at least one SCANsat
             // scanner.  Do not special-case a saved SCANsat mod selection: it may
             // currently have zero visible scanner parts under the active filters.
@@ -1430,13 +1430,13 @@ namespace PartsReference
                 rotatingPreviewPartKey = key;
                 rotatingPreviewAngle = 0f;
 
-                rotatingPreviewRoot = new GameObject("PartsReference_RotatingPreviewRoot");
+                rotatingPreviewRoot = new GameObject("PartExplorer_RotatingPreviewRoot");
                 rotatingPreviewRoot.hideFlags = HideFlags.HideAndDontSave;
                 rotatingPreviewRoot.transform.position = PreviewSceneOrigin;
                 rotatingPreviewRoot.layer = PreviewLayer;
 
                 rotatingPreviewPart = (GameObject)UnityEngine.Object.Instantiate(sourceObject);
-                rotatingPreviewPart.name = "PartsReference_RotatingPreviewPart";
+                rotatingPreviewPart.name = "PartExplorer_RotatingPreviewPart";
                 rotatingPreviewPart.hideFlags = HideFlags.HideAndDontSave;
                 rotatingPreviewPart.transform.SetParent(rotatingPreviewRoot.transform, false);
                 rotatingPreviewPart.transform.localPosition = Vector3.zero;
@@ -1475,12 +1475,12 @@ namespace PartsReference
                 radius = Mathf.Max(radius, 0.1f);
 
                 rotatingPreviewTexture = new RenderTexture(PreviewTextureSize, PreviewTextureSize, 24, RenderTextureFormat.ARGB32);
-                rotatingPreviewTexture.name = "PartsReference_RotatingPreviewTexture";
+                rotatingPreviewTexture.name = "PartExplorer_RotatingPreviewTexture";
                 rotatingPreviewTexture.hideFlags = HideFlags.HideAndDontSave;
                 rotatingPreviewTexture.wrapMode = TextureWrapMode.Clamp;
                 rotatingPreviewTexture.Create();
 
-                GameObject cameraObject = new GameObject("PartsReference_RotatingPreviewCamera");
+                GameObject cameraObject = new GameObject("PartExplorer_RotatingPreviewCamera");
                 cameraObject.hideFlags = HideFlags.HideAndDontSave;
                 cameraObject.layer = PreviewLayer;
                 rotatingPreviewCamera = cameraObject.AddComponent<Camera>();
@@ -1501,17 +1501,17 @@ namespace PartsReference
                 rotatingPreviewCamera.transform.LookAt(center, Vector3.up);
 
                 rotatingPreviewKeyLight = CreatePreviewLight(
-                    "PartsReference_RotatingPreviewKeyLight",
+                    "PartExplorer_RotatingPreviewKeyLight",
                     new Vector3(35f, -35f, 0f), 1.15f);
                 rotatingPreviewFillLight = CreatePreviewLight(
-                    "PartsReference_RotatingPreviewFillLight",
+                    "PartExplorer_RotatingPreviewFillLight",
                     new Vector3(330f, 145f, 0f), 0.55f);
 
                 return true;
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[PartsReference] Unable to create rotating part preview: " + ex.Message);
+                Debug.LogWarning("[PartExplorer] Unable to create rotating part preview: " + ex.Message);
                 DestroyRotatingPreview();
                 return false;
             }
@@ -1623,7 +1623,7 @@ namespace PartsReference
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[PartsReference] Unable to apply first part variant for preview: " + ex.Message);
+                Debug.LogWarning("[PartExplorer] Unable to apply first part variant for preview: " + ex.Message);
             }
         }
 
@@ -1740,7 +1740,7 @@ namespace PartsReference
             try
             {
                 Vector3 origin = PreviewSceneOrigin + new Vector3(0f, 5000f, 0f);
-                root = new GameObject("PartsReference_StaticThumbnailRoot");
+                root = new GameObject("PartExplorer_StaticThumbnailRoot");
                 root.hideFlags = HideFlags.HideAndDontSave;
                 root.transform.position = origin;
                 root.layer = PreviewLayer;
@@ -1780,7 +1780,7 @@ namespace PartsReference
                 renderTexture.hideFlags = HideFlags.HideAndDontSave;
                 renderTexture.Create();
 
-                cameraObject = new GameObject("PartsReference_StaticThumbnailCamera");
+                cameraObject = new GameObject("PartExplorer_StaticThumbnailCamera");
                 cameraObject.hideFlags = HideFlags.HideAndDontSave;
                 Camera camera = cameraObject.AddComponent<Camera>();
                 camera.enabled = false;
@@ -1798,7 +1798,7 @@ namespace PartsReference
                 camera.transform.position = root.transform.position + new Vector3(0f, 0f, -distance);
                 camera.transform.LookAt(root.transform.position, Vector3.up);
 
-                keyLightObject = new GameObject("PartsReference_StaticThumbnailKeyLight");
+                keyLightObject = new GameObject("PartExplorer_StaticThumbnailKeyLight");
                 keyLightObject.hideFlags = HideFlags.HideAndDontSave;
                 Light keyLight = keyLightObject.AddComponent<Light>();
                 keyLight.type = LightType.Directional;
@@ -1806,7 +1806,7 @@ namespace PartsReference
                 keyLight.cullingMask = 1 << PreviewLayer;
                 keyLightObject.transform.rotation = Quaternion.Euler(35f, -35f, 0f);
 
-                fillLightObject = new GameObject("PartsReference_StaticThumbnailFillLight");
+                fillLightObject = new GameObject("PartExplorer_StaticThumbnailFillLight");
                 fillLightObject.hideFlags = HideFlags.HideAndDontSave;
                 Light fillLight = fillLightObject.AddComponent<Light>();
                 fillLight.type = LightType.Directional;
@@ -1817,7 +1817,7 @@ namespace PartsReference
                 camera.Render();
                 RenderTexture.active = renderTexture;
                 Texture2D result = new Texture2D(LiveThumbnailTextureSize, LiveThumbnailTextureSize, TextureFormat.ARGB32, false);
-                result.name = "PartsReference_LiveThumbnail_" + textureKey;
+                result.name = "PartExplorer_LiveThumbnail_" + textureKey;
                 result.ReadPixels(new Rect(0, 0, LiveThumbnailTextureSize, LiveThumbnailTextureSize), 0, 0, false);
                 result.Apply(false, false);
                 result.wrapMode = TextureWrapMode.Clamp;
@@ -1825,7 +1825,7 @@ namespace PartsReference
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[PartsReference] Unable to create live part thumbnail: " + ex.Message);
+                Debug.LogWarning("[PartExplorer] Unable to create live part thumbnail: " + ex.Message);
                 return null;
             }
             finally
@@ -1857,10 +1857,10 @@ namespace PartsReference
         {
             DestroyWindowIcon();
 
-            string path = Path.Combine(KSPUtil.ApplicationRootPath, "GameData", "PartsReference", "PluginData", "parts_reference_icon_large.png");
+            string path = Path.Combine(KSPUtil.ApplicationRootPath, "GameData", "PartExplorer", "PluginData", "part_explorer_icon_large.png");
             if (!File.Exists(path))
             {
-                Debug.LogWarning("[PartsReference] Window icon not found: " + path);
+                Debug.LogWarning("[PartExplorer] Window icon not found: " + path);
                 return;
             }
 
@@ -1868,7 +1868,7 @@ namespace PartsReference
             {
                 byte[] bytes = File.ReadAllBytes(path);
                 Texture2D texture = new Texture2D(2, 2, TextureFormat.ARGB32, false);
-                texture.name = "PartsReference_WindowIcon";
+                texture.name = "PartExplorer_WindowIcon";
                 if (texture.LoadImage(bytes))
                 {
                     texture.wrapMode = TextureWrapMode.Clamp;
@@ -1881,7 +1881,7 @@ namespace PartsReference
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[PartsReference] Unable to load window icon " + path + ": " + ex.Message);
+                Debug.LogWarning("[PartExplorer] Unable to load window icon " + path + ": " + ex.Message);
             }
         }
 
@@ -1898,10 +1898,10 @@ namespace PartsReference
         {
             DestroyPartTextures();
 
-            string imageDirectory = Path.Combine(KSPUtil.ApplicationRootPath, "GameData", "PartsReference", "PluginData", "Images");
+            string imageDirectory = Path.Combine(KSPUtil.ApplicationRootPath, "GameData", "PartExplorer", "PluginData", "Images");
             if (!Directory.Exists(imageDirectory))
             {
-                Debug.LogWarning("[PartsReference] Image directory not found: " + imageDirectory);
+                Debug.LogWarning("[PartExplorer] Image directory not found: " + imageDirectory);
                 return;
             }
 
@@ -1915,7 +1915,7 @@ namespace PartsReference
                 {
                     byte[] bytes = File.ReadAllBytes(path);
                     Texture2D texture = new Texture2D(2, 2, TextureFormat.ARGB32, false);
-                    texture.name = "PartsReference_" + entry.Value;
+                    texture.name = "PartExplorer_" + entry.Value;
                     if (texture.LoadImage(bytes))
                     {
                         texture.wrapMode = TextureWrapMode.Clamp;
@@ -1928,7 +1928,7 @@ namespace PartsReference
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning("[PartsReference] Unable to load image " + path + ": " + ex.Message);
+                    Debug.LogWarning("[PartExplorer] Unable to load image " + path + ": " + ex.Message);
                 }
             }
         }
@@ -2243,7 +2243,7 @@ namespace PartsReference
                 {
                     using (new GUILayout.HorizontalScope())
                     {
-                        if (GUILayout.Button(new GUIContent(row.ModName, "Filter PartsReference to " + row.ModName),
+                        if (GUILayout.Button(new GUIContent(row.ModName, "Filter PartExplorer to " + row.ModName),
                             rowStyle, GUILayout.Width(330f), GUILayout.Height(28f)))
                         {
                             selectedMod = row.ModName;
@@ -2444,7 +2444,7 @@ namespace PartsReference
 
             try
             {
-                configuration = KSP.IO.PluginConfiguration.CreateForType<PartsReferenceAddon>();
+                configuration = KSP.IO.PluginConfiguration.CreateForType<PartExplorerAddon>();
                 configuration.load();
                 foreach (ExtraColumn column in Enum.GetValues(typeof(ExtraColumn)))
                     if (configuration.GetValue("column_" + column, false))
@@ -2488,7 +2488,7 @@ namespace PartsReference
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[PartsReference] Unable to load settings: " + ex.Message);
+                Debug.LogWarning("[PartExplorer] Unable to load settings: " + ex.Message);
             }
         }
 
@@ -2534,7 +2534,7 @@ namespace PartsReference
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[PartsReference] Unable to save settings: " + ex.Message);
+                Debug.LogWarning("[PartExplorer] Unable to save settings: " + ex.Message);
             }
         }
 
@@ -2615,7 +2615,7 @@ namespace PartsReference
                 {
                     GUILayout.Space(12f);
                     if (filteredOnly && comparisonPartKeys.Count > 0)
-                        GUILayout.Label("No selected parts match the current PartsReference and editor filters. Turn off Filtered only to compare all selected parts.", descriptionStyle);
+                        GUILayout.Label("No selected parts match the current PartExplorer and editor filters. Turn off Filtered only to compare all selected parts.", descriptionStyle);
                     else
                         GUILayout.Label("Select parts with the checkboxes in the leftmost column of the Parts tab.", descriptionStyle);
                     GUILayout.FlexibleSpace();
@@ -3162,7 +3162,7 @@ namespace PartsReference
             }
             catch (Exception ex)
             {
-                Debug.LogError("[PartsReference] Unable to add part to editor: " + ex);
+                Debug.LogError("[PartExplorer] Unable to add part to editor: " + ex);
             }
         }
 
@@ -3563,7 +3563,7 @@ namespace PartsReference
             }
             catch (Exception ex)
             {
-                Debug.LogError("[PartsReference] Failed to read loaded part data; using embedded fallback. " + ex);
+                Debug.LogError("[PartExplorer] Failed to read loaded part data; using embedded fallback. " + ex);
                 activeParts = new List<PartRecord>(SCANsatPartData.EmbeddedReferenceParts);
                 usingLiveData = false;
                 dataSourceText = "Embedded SCANsat reference data (live read failed)";
