@@ -37,9 +37,10 @@
 3:PartExplorer.version,GameData/PartExplorer
 3:License.md,GameData/PartExplorer
 3:README.md,GameData/PartExplorer
+3:Manual/PartExplorer_User_Manual.pdf,GameData/PartExplorer
 
 # 4:SOURCDIR, DESTDIR
-4:Manual,PartExplorer
+#4:Manual,PartExplorer
 
 
 # 5:ModuleManager
