@@ -1,4 +1,4 @@
-using ClickThroughFix;
+﻿using ClickThroughFix;
 using KSP.UI.Screens;
 using System;
 using System.Collections.Generic;
@@ -47,6 +47,7 @@ namespace PartExplorer
         private bool showDetailImpactTolerance = true;
         private bool showDetailGTolerance = true;
         private bool windowVisible;
+        private bool restoreWindowAfterPause;
         private Vector2 listScroll;
         private Vector2 detailScroll;
         private Vector2 settingsScroll;
@@ -117,6 +118,15 @@ namespace PartExplorer
         private bool sortAscending = true;
         private ToolbarControl toolbarControl;
         private List<PartRecord> activeParts = new List<PartRecord>(SCANsatPartData.EmbeddedReferenceParts);
+
+        // Part-data caching. Building PartRecord objects means walking every loaded
+        // KSP part and parsing its stock, science, and SCANsat configuration. That
+        // is intentionally done only when the loaded-part database changes, not
+        // every time the toolbar button opens the already-populated window.
+        private bool partDataCacheValid;
+        private object cachedLoadedPartsListReference;
+        private int cachedLoadedPartsCount = -1;
+
         private bool usingLiveData;
         private string dataSourceText = "Loaded KSP part data";
         private GUIStyle titleStyle;
@@ -245,6 +255,11 @@ namespace PartExplorer
                 ToolbarIcon38,
                 ToolbarIcon24,
                 ModName);
+
+            GameEvents.onGameSceneLoadRequested.Add(OnGameSceneLoadRequested);
+            GameEvents.onGameSceneSwitchRequested.Add(OnGameSceneSwitchRequested);
+            GameEvents.onGamePause.Add(OnGamePause);
+            GameEvents.onGameUnpause.Add(OnGameUnpause);
         }
 
         private void Start()
@@ -268,6 +283,11 @@ namespace PartExplorer
 
         private void OnDestroy()
         {
+            GameEvents.onGameSceneLoadRequested.Remove(OnGameSceneLoadRequested);
+            GameEvents.onGameSceneSwitchRequested.Remove(OnGameSceneSwitchRequested);
+            GameEvents.onGamePause.Remove(OnGamePause);
+            GameEvents.onGameUnpause.Remove(OnGameUnpause);
+
             SaveSettings();
             DestroyRotatingPreview();
             DestroyPartTextures();
@@ -275,9 +295,54 @@ namespace PartExplorer
             DestroyWindowIcon();
         }
 
+        private void OnGameSceneSwitchRequested(GameEvents.FromToAction<GameScenes, GameScenes> scenes)
+        {
+            restoreWindowAfterPause = false;
+            ForceHideWindow();
+        }
+
+        private void OnGameSceneLoadRequested(GameScenes scene)
+        {
+            // Hide as soon as KSP requests a scene load so no PartExplorer window
+            // carries an open state across scene transitions.
+            restoreWindowAfterPause = false;
+            ForceHideWindow();
+        }
+
+        private void OnGamePause()
+        {
+            restoreWindowAfterPause = windowVisible;
+            ForceHideWindow();
+        }
+
+        private void OnGameUnpause()
+        {
+            if (!restoreWindowAfterPause)
+                return;
+
+            restoreWindowAfterPause = false;
+            windowVisible = true;
+            if (toolbarControl != null)
+                toolbarControl.SetTrue(false);
+        }
+
+        private void ForceHideWindow()
+        {
+            windowVisible = false;
+            showModSelector = false;
+            showCategorySelector = false;
+            showPartContextMenu = false;
+            draggingPaneSplitter = false;
+            draggingWindowResize = false;
+            DestroyRotatingPreview();
+
+            if (toolbarControl != null)
+                toolbarControl.SetFalse(false);
+        }
+
         private void ToggleWindowOn()
         {
-            RefreshData();
+            EnsurePartDataCache();
             windowVisible = true;
 
             // Build once on open so the first displayed list already reflects the
@@ -3530,6 +3595,30 @@ namespace PartExplorer
         }
 
 
+        private void EnsurePartDataCache()
+        {
+            object loadedPartsList = PartLoader.LoadedPartsList;
+            int loadedPartsCount = PartLoader.LoadedPartsList == null
+                ? -1
+                : PartLoader.LoadedPartsList.Count;
+
+            if (partDataCacheValid &&
+                ReferenceEquals(cachedLoadedPartsListReference, loadedPartsList) &&
+                cachedLoadedPartsCount == loadedPartsCount)
+                return;
+
+            RefreshData();
+        }
+
+        private void CapturePartDataCacheState()
+        {
+            cachedLoadedPartsListReference = PartLoader.LoadedPartsList;
+            cachedLoadedPartsCount = PartLoader.LoadedPartsList == null
+                ? -1
+                : PartLoader.LoadedPartsList.Count;
+            partDataCacheValid = true;
+        }
+
         private void RefreshData()
         {
             DestroyRotatingPreview();
@@ -3568,6 +3657,10 @@ namespace PartExplorer
                 usingLiveData = false;
                 dataSourceText = "Embedded SCANsat reference data (live read failed)";
                 PruneComparisonSelection();
+            }
+            finally
+            {
+                CapturePartDataCacheState();
             }
         }
 

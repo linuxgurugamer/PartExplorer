@@ -10,8 +10,8 @@
   
  using System.Reflection;
 
- [assembly: AssemblyVersion("0.1.64.0")]
- [assembly: AssemblyFileVersion("0.1.64.0")]
+ [assembly: AssemblyVersion("0.1.66.0")]
+ [assembly: AssemblyFileVersion("0.1.66.0")]
 
 [assembly: KSPAssemblyDependency("ToolbarController", 1, 0)]
 [assembly: KSPAssemblyDependency("ClickThroughBlocker", 1, 0)]
