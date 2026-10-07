@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using ToolbarControl_NS;
 using UnityEngine;
 
@@ -16,6 +17,9 @@ namespace PartExplorer
         private const int WindowId = 921734;
         private const int ModSelectorPopupId = 921735;
         private const int CategorySelectorPopupId = 921736;
+        private const int ExportWindowId = 921739;
+        private const int SettingsWindowId = 921740;
+        private const string CurrentVersion = "0.1.74";
         internal const string ModId = "PartExplorer";
         internal const string ModName = "Part Explorer";
         private const string ToolbarButtonId = "PartExplorerButton";
@@ -40,6 +44,7 @@ namespace PartExplorer
         private float resizeDragStartHeight;
         private bool useAlternateSkin;
         private bool showPartPath;
+        private bool showTooltips = true;
         private bool showDetailId = false;
         private bool showDetailCost = true;
         private bool showDetailMass = true;
@@ -51,6 +56,9 @@ namespace PartExplorer
         private Vector2 listScroll;
         private Vector2 detailScroll;
         private Vector2 settingsScroll;
+        private bool settingsVisible;
+        private Rect settingsWindowRect = new Rect(200f, 120f, 720f, 500f);
+        private SettingsSectionTab settingsTab = SettingsSectionTab.Interface;
         private Vector2 compareScroll;
         private Vector2 modsScroll;
         private string search = string.Empty;
@@ -66,6 +74,19 @@ namespace PartExplorer
         private bool showCategorySelector;
         private bool filteredOnly;
 
+        // Export window state. Exporting always uses the already-cached PartRecord
+        // data; opening this window never rebuilds the KSP part database.
+        private bool exportVisible;
+        private Rect exportWindowRect = new Rect(220f, 120f, 700f, 690f);
+        private Vector2 exportFieldScroll;
+        private PartExportScope exportScope = PartExportScope.CurrentResults;
+        private PartExportFormat exportFormat = PartExportFormat.Csv;
+        private CompareExportLayout compareExportLayout = CompareExportLayout.PartsAcrossColumns;
+        private readonly HashSet<PartExportField> exportFields = new HashSet<PartExportField>();
+        private string exportDirectory = string.Empty;
+        private string exportFileName = string.Empty;
+        private string exportStatus = string.Empty;
+
         // Right-click context menu for Parts rows.  The menu is drawn at the end
         // of the window callback so it stays above the normal table controls.
         private bool showPartContextMenu;
@@ -76,7 +97,11 @@ namespace PartExplorer
         private bool compareDifferencesOnly;
         private bool compareMarkLowHigh;
         private bool compareShowDeltas;
+        private bool compareAbbreviatedDescription;
+        private int compareDescriptionMaxLength = 120;
+        private string compareDescriptionMaxLengthText = "120";
         private CompareColumnWidthMode compareColumnWidthMode = CompareColumnWidthMode.Normal;
+        private readonly HashSet<string> compressedCompareRows = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<InformationSection> visibleDetailSections = new HashSet<InformationSection>();
         private readonly HashSet<InformationSection> visibleCompareSections = new HashSet<InformationSection>();
 
@@ -143,6 +168,9 @@ namespace PartExplorer
         private GUIStyle compareLabelStyle;
         private GUIStyle compareCellStyle;
         private GUIStyle compareHighlightedCellTextStyle;
+        private GUIStyle compareCompressedLabelStyle;
+        private GUIStyle compareCompressedCellStyle;
+        private GUIStyle compareCompressedHighlightedCellTextStyle;
         private GUISkin alternateSkin;
         private bool stylesUseAlternateSkin;
         private readonly Dictionary<string, Texture2D> partTextures = new Dictionary<string, Texture2D>(StringComparer.Ordinal);
@@ -158,6 +186,10 @@ namespace PartExplorer
         private const float CompareHeaderSpacing = 2f;
         private const float CompareColumnSpacing = 5f;
         private const float CompareMinimumRowHeight = 30f;
+        private const float CompareCompressedRowHeight = 24f;
+        private const float CompareRowCompressButtonWidth = 20f;
+        private const float CompareDescriptionVerticalPadding = 2f;
+        private const int MaxComparisonParts = 50;
         private const float PartsHeaderHeight = 24f;
         private const int LiveThumbnailTextureSize = 96;
         // Low/High filter buttons are 68 px wide; 102 px is exactly 1.5x that width.
@@ -192,13 +224,68 @@ namespace PartExplorer
             Part, Cost, Mass, Ec, Science, Id, Fov, Daylight, MinAltitude, OptimalAltitude, MaxAltitude,
             MaxTemp, ImpactTolerance, GTolerance, Biome, Altimetry, Visual, Resource, Anomaly
         }
-        private enum WindowPage { Parts, Compare, Mods, Settings }
+        private enum WindowPage { Parts, Compare, Mods }
+
+        private enum SettingsSectionTab
+        {
+            Interface,
+            DetailsPane,
+            DetailsPanels,
+            CompareRows,
+            AdditionalColumns
+        }
 
         private enum CompareColumnWidthMode
         {
             Compact,
             Normal,
             Wide
+        }
+
+        private enum PartExportScope
+        {
+            CurrentResults,
+            AllParts,
+            SelectedParts,
+            CompareParts,
+            CurrentMod
+        }
+
+        private enum PartExportFormat
+        {
+            Csv,
+            Json
+        }
+
+        private enum CompareExportLayout
+        {
+            PartsAcrossColumns,
+            PartsDownRows
+        }
+
+        private enum PartExportField
+        {
+            Title,
+            InternalName,
+            Path,
+            Mod,
+            Category,
+            Manufacturer,
+            Description,
+            Mass,
+            Cost,
+            EntryCost,
+            TechRequired,
+            BulkheadProfiles,
+            CrewCapacity,
+            MaxTemperature,
+            ImpactTolerance,
+            GTolerance,
+            Modules,
+            Resources,
+            EngineData,
+            ScienceData,
+            ScanSatData
         }
 
         private enum InformationSection
@@ -332,6 +419,8 @@ namespace PartExplorer
             showModSelector = false;
             showCategorySelector = false;
             showPartContextMenu = false;
+            exportVisible = false;
+            settingsVisible = false;
             draggingPaneSplitter = false;
             draggingWindowResize = false;
             DestroyRotatingPreview();
@@ -354,6 +443,8 @@ namespace PartExplorer
         private void ToggleWindowOff()
         {
             windowVisible = false;
+            exportVisible = false;
+            settingsVisible = false;
             DestroyRotatingPreview();
         }
 
@@ -393,6 +484,22 @@ namespace PartExplorer
             windowRect.x = Mathf.Clamp(windowRect.x, 0f, Mathf.Max(0f, Screen.width - 120f));
             windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, Screen.height - 40f));
 
+            if (exportVisible)
+            {
+                exportWindowRect = ClickThruBlocker.GUILayoutWindow(ExportWindowId, exportWindowRect, DrawExportWindow, "Export Parts",
+                    GUILayout.Width(700f), GUILayout.Height(690f));
+                exportWindowRect.x = Mathf.Clamp(exportWindowRect.x, 0f, Mathf.Max(0f, Screen.width - exportWindowRect.width));
+                exportWindowRect.y = Mathf.Clamp(exportWindowRect.y, 0f, Mathf.Max(0f, Screen.height - 40f));
+            }
+
+            if (settingsVisible)
+            {
+                settingsWindowRect = ClickThruBlocker.GUILayoutWindow(SettingsWindowId, settingsWindowRect, DrawSettingsWindow, "Part Explorer Settings",
+                    GUILayout.Width(720f), GUILayout.Height(500f));
+                settingsWindowRect.x = Mathf.Clamp(settingsWindowRect.x, 0f, Mathf.Max(0f, Screen.width - settingsWindowRect.width));
+                settingsWindowRect.y = Mathf.Clamp(settingsWindowRect.y, 0f, Mathf.Max(0f, Screen.height - 40f));
+            }
+
         }
 
         private void EnsureStyles()
@@ -420,6 +527,21 @@ namespace PartExplorer
                     compareCellStyle.padding.top, compareCellStyle.padding.bottom)
             };
             compareHighlightedCellTextStyle.normal.textColor = Color.black;
+            compareCompressedLabelStyle = new GUIStyle(compareLabelStyle)
+            {
+                wordWrap = false,
+                clipping = TextClipping.Clip
+            };
+            compareCompressedCellStyle = new GUIStyle(compareCellStyle)
+            {
+                wordWrap = false,
+                clipping = TextClipping.Clip
+            };
+            compareCompressedHighlightedCellTextStyle = new GUIStyle(compareHighlightedCellTextStyle)
+            {
+                wordWrap = false,
+                clipping = TextClipping.Clip
+            };
             smallStyle = new GUIStyle(GUI.skin.label) { fontSize = 11 };
             rightStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleRight };
             stylesUseAlternateSkin = useAlternateSkin;
@@ -431,7 +553,7 @@ namespace PartExplorer
             // Capture this before processing input so that, even when a selection
             // closes the popup during MouseUp, controls underneath remain disabled
             // for the rest of that same event.
-            bool selectorModal = showModSelector || showCategorySelector || showPartContextMenu;
+            bool selectorModal = showModSelector || showCategorySelector || showPartContextMenu || exportVisible;
 
             // While a selector is open, draw the normal window controls disabled.
             // The popup itself is drawn last with GUI input restored, so its own
@@ -462,10 +584,6 @@ namespace PartExplorer
             {
                 DrawModsPage();
             }
-            else
-            {
-                DrawSettingsPage();
-            }
 
             GUILayout.Space(4f);
 
@@ -479,8 +597,7 @@ namespace PartExplorer
             GUI.Label(statusRect, footerStatus, smallStyle);
             if (GUI.Button(closeRect, "Close"))
             {
-                windowVisible = false;
-                DestroyRotatingPreview();
+                ToggleWindowOff();
                 if (toolbarControl != null)
                     toolbarControl.SetFalse(false);
             }
@@ -508,7 +625,7 @@ namespace PartExplorer
             DrawPartContextMenu();
 
             // Do not let the window itself acquire a drag while any popup is modal.
-            if (!showModSelector && !showCategorySelector && !showPartContextMenu)
+            if (!showModSelector && !showCategorySelector && !showPartContextMenu && !exportVisible)
                 GUI.DragWindow();
         }
 
@@ -527,8 +644,13 @@ namespace PartExplorer
                             currentPage = WindowPage.Compare;
                         if (GUILayout.Toggle(currentPage == WindowPage.Mods, "Mods", GUI.skin.button, GUILayout.Width(90f)))
                             currentPage = WindowPage.Mods;
-                        if (GUILayout.Toggle(currentPage == WindowPage.Settings, "Settings", GUI.skin.button, GUILayout.Width(90f)))
-                            currentPage = WindowPage.Settings;
+                        if (GUILayout.Button(new GUIContent("Settings", "Open PartExplorer settings in a separate window"), GUILayout.Width(90f)))
+                        {
+                            settingsVisible = true;
+                            showModSelector = false;
+                            showCategorySelector = false;
+                            showPartContextMenu = false;
+                        }
                     }
 
                     switch (currentPage)
@@ -542,9 +664,6 @@ namespace PartExplorer
                             break;
                         case WindowPage.Mods:
                             DrawModsTop();
-                            break;
-                        case WindowPage.Settings:
-                            DrawSettingsTop();
                             break;
                     }
 
@@ -1199,7 +1318,11 @@ namespace PartExplorer
             bool previousEnabled = GUI.enabled;
 
             GUI.enabled = previousEnabled && rows.Count > 0;
-            if (GUILayout.Button(new GUIContent("Select visible", "Select every part currently shown by the active filters"), GUILayout.Width(95f)))
+            if (GUILayout.Button(new GUIContent("Export", "Export current results, all parts, selected parts, or the current mod"), GUILayout.Width(70f)))
+                OpenExportWindow(PartExportScope.CurrentResults);
+
+            GUI.enabled = previousEnabled && rows.Count > 0 && comparisonPartKeys.Count < MaxComparisonParts;
+            if (GUILayout.Button(new GUIContent("Select visible", "Select visible parts up to the " + MaxComparisonParts.ToString(CultureInfo.InvariantCulture) + "-part comparison limit"), GUILayout.Width(95f)))
             {
                 foreach (PartRecord visiblePart in rows)
                     SetComparisonSelected(visiblePart, true);
@@ -1282,7 +1405,7 @@ namespace PartExplorer
             DrawPinnedTableHeader(tableHeaderRect);
 
             GUILayout.EndVertical();
-            GUILayout.Label(rows.Count.ToString(CultureInfo.InvariantCulture) + " shown • " + comparisonPartKeys.Count.ToString(CultureInfo.InvariantCulture) + " selected for comparison", smallStyle);
+            GUILayout.Label(rows.Count.ToString(CultureInfo.InvariantCulture) + " shown • " + comparisonPartKeys.Count.ToString(CultureInfo.InvariantCulture) + "/" + MaxComparisonParts.ToString(CultureInfo.InvariantCulture) + " selected for comparison", smallStyle);
             GUILayout.EndVertical();
         }
 
@@ -1299,10 +1422,16 @@ namespace PartExplorer
 
             bool selected = IsSelectedForComparison(part);
             string partName = part != null && !string.IsNullOrEmpty(part.Part) ? part.Part : "part";
+            bool atLimit = !selected && comparisonPartKeys.Count >= MaxComparisonParts;
             string tooltip = selected
                 ? "Remove " + partName + " from comparison"
-                : "Select " + partName + " for comparison";
+                : atLimit
+                    ? "Comparison is limited to " + MaxComparisonParts.ToString(CultureInfo.InvariantCulture) + " parts"
+                    : "Select " + partName + " for comparison";
+            bool oldEnabled = GUI.enabled;
+            GUI.enabled = oldEnabled && !atLimit;
             bool newSelected = GUI.Toggle(toggleRect, selected, new GUIContent(string.Empty, tooltip));
+            GUI.enabled = oldEnabled;
             if (newSelected != selected)
                 SetComparisonSelected(part, newSelected);
 
@@ -1337,7 +1466,7 @@ namespace PartExplorer
                 string.Equals(existing, key, StringComparison.OrdinalIgnoreCase));
             if (selected)
             {
-                if (existingIndex < 0)
+                if (existingIndex < 0 && comparisonPartKeys.Count < MaxComparisonParts)
                     comparisonPartKeys.Add(key);
             }
             else if (existingIndex >= 0)
@@ -2334,37 +2463,104 @@ namespace PartExplorer
             }
         }
 
-        private void DrawSettingsTop()
+        private void DrawSettingsWindow(int id)
         {
-            GUILayout.Label("Settings", titleStyle);
-            GUILayout.Label("Selected columns are added to the parts table. Click any visible column heading to sort by that column; click it again to reverse the sort order.", smallStyle);
+            GUILayout.BeginVertical();
+
+            using (new GUILayout.HorizontalScope())
+            {
+                DrawSettingsTabButton("Interface", SettingsSectionTab.Interface, 105f);
+                DrawSettingsTabButton("Details Pane", SettingsSectionTab.DetailsPane, 115f);
+                DrawSettingsTabButton("Details Panels", SettingsSectionTab.DetailsPanels, 120f);
+                DrawSettingsTabButton("Compare Rows", SettingsSectionTab.CompareRows, 120f);
+                DrawSettingsTabButton("Additional Columns", SettingsSectionTab.AdditionalColumns, 145f);
+                GUILayout.FlexibleSpace();
+            }
+
             GUILayout.Space(6f);
-        }
-        private void DrawSettingsPage()
-        {
             settingsScroll = GUILayout.BeginScrollView(settingsScroll, GUI.skin.box, GUILayout.ExpandHeight(true));
 
-            GUILayout.Label("Interface", sectionStyle);
-            GUILayout.BeginHorizontal();
-            bool newAlternateSkin = GUILayout.Toggle(useAlternateSkin, "Use alternate KSP skin", GUILayout.Width(205f));
+            switch (settingsTab)
+            {
+                case SettingsSectionTab.Interface:
+                    DrawSettingsInterfaceTab();
+                    break;
+                case SettingsSectionTab.DetailsPane:
+                    DrawSettingsDetailsPaneTab();
+                    break;
+                case SettingsSectionTab.DetailsPanels:
+                    DrawSettingsDetailsPanelsTab();
+                    break;
+                case SettingsSectionTab.CompareRows:
+                    DrawSettingsCompareRowsTab();
+                    break;
+                case SettingsSectionTab.AdditionalColumns:
+                    DrawSettingsAdditionalColumnsTab();
+                    break;
+            }
+
+            GUILayout.EndScrollView();
+            GUILayout.Space(6f);
+
+            using (new GUILayout.HorizontalScope())
+            {
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("Close", GUILayout.Width(90f)))
+                    settingsVisible = false;
+                GUILayout.FlexibleSpace();
+            }
+
+            GUILayout.EndVertical();
+            // Allow the Settings window to be dragged from any unused point in the window.
+            // Interactive controls consume their own mouse events, so tabs, fields, buttons,
+            // toggles, and scroll bars remain usable.
+            GUI.DragWindow(new Rect(0f, 0f, 10000f, 10000f));
+        }
+
+        private void DrawSettingsTabButton(string caption, SettingsSectionTab tab, float width)
+        {
+            bool selected = settingsTab == tab;
+            if (GUILayout.Toggle(selected, caption, GUI.skin.button, GUILayout.Width(width)) && !selected)
+            {
+                settingsTab = tab;
+                settingsScroll = Vector2.zero;
+            }
+        }
+
+        private void DrawSettingsInterfaceTab()
+        {
+            GUILayout.Label("Interface", titleStyle);
+            GUILayout.Label("General PartExplorer display and navigation options.", smallStyle);
+            GUILayout.Space(8f);
+
+            bool newAlternateSkin = GUILayout.Toggle(useAlternateSkin, "Use alternate KSP skin", GUILayout.Width(240f));
             if (newAlternateSkin != useAlternateSkin)
             {
                 useAlternateSkin = newAlternateSkin;
                 SaveSettings();
             }
 
-            bool newShowPartPath = GUILayout.Toggle(showPartPath, "Show part path in Details", GUILayout.Width(205f));
+            bool newShowTooltips = GUILayout.Toggle(showTooltips, "Show tooltips", GUILayout.Width(240f));
+            if (newShowTooltips != showTooltips)
+            {
+                showTooltips = newShowTooltips;
+                SaveSettings();
+            }
+
+            bool newShowPartPath = GUILayout.Toggle(showPartPath, "Show part path in Details", GUILayout.Width(240f));
             if (newShowPartPath != showPartPath)
             {
                 showPartPath = newShowPartPath;
                 SaveSettings();
             }
-            GUILayout.Space(205f);
-            GUILayout.EndHorizontal();
+        }
 
-            GUILayout.Space(10f);
-            GUILayout.Label("Details pane", sectionStyle);
+        private void DrawSettingsDetailsPaneTab()
+        {
+            GUILayout.Label("Details Pane", titleStyle);
             GUILayout.Label("Choose which general part fields are shown in the Part Information panel.", smallStyle);
+            GUILayout.Space(8f);
+
             GUILayout.BeginHorizontal();
             DrawDetailFieldToggle(ref showDetailId, "ID");
             DrawDetailFieldToggle(ref showDetailCost, "Cost");
@@ -2375,19 +2571,53 @@ namespace PartExplorer
             DrawDetailFieldToggle(ref showDetailImpactTolerance, "Impact tolerance");
             DrawDetailFieldToggle(ref showDetailGTolerance, "G tolerance");
             GUILayout.EndHorizontal();
+        }
 
-            GUILayout.Space(10f);
-            GUILayout.Label("Details panels", sectionStyle);
+        private void DrawSettingsDetailsPanelsTab()
+        {
+            GUILayout.Label("Details Panels", titleStyle);
             GUILayout.Label("Choose which complete information panels are shown in Details.", smallStyle);
+            GUILayout.Space(8f);
             DrawInformationSectionGrid(visibleDetailSections);
+        }
 
-            GUILayout.Space(10f);
-            GUILayout.Label("Compare rows", sectionStyle);
+        private void DrawSettingsCompareRowsTab()
+        {
+            GUILayout.Label("Compare Rows", titleStyle);
             GUILayout.Label("Choose which kinds of information are included in Compare. These choices are independent of Details-panel visibility.", smallStyle);
+            GUILayout.Space(8f);
             DrawInformationSectionGrid(visibleCompareSections);
 
-            GUILayout.Space(10f);
-            GUILayout.Label("Additional data columns", sectionStyle);
+            GUILayout.Space(14f);
+            GUILayout.Label("Description", sectionStyle);
+            GUILayout.Label("When Abbreviated Descr is enabled on the Compare pane, descriptions are limited to this many characters.", smallStyle);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Maximum characters:", GUILayout.Width(145f));
+            string newText = GUILayout.TextField(compareDescriptionMaxLengthText ?? "120", GUILayout.Width(80f));
+            if (!string.Equals(newText, compareDescriptionMaxLengthText, StringComparison.Ordinal))
+            {
+                compareDescriptionMaxLengthText = newText;
+                int parsed;
+                if (int.TryParse(compareDescriptionMaxLengthText, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed))
+                {
+                    parsed = Mathf.Clamp(parsed, 20, 2000);
+                    if (parsed != compareDescriptionMaxLength)
+                    {
+                        compareDescriptionMaxLength = parsed;
+                        SaveSettings();
+                    }
+                }
+            }
+            GUILayout.Label("(20–2000, default 120)", smallStyle);
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawSettingsAdditionalColumnsTab()
+        {
+            GUILayout.Label("Additional Data Columns", titleStyle);
+            GUILayout.Label("Selected columns are added to the Parts table. Click any visible column heading to sort by that column; click it again to reverse the sort order.", smallStyle);
+            GUILayout.Space(8f);
 
             ExtraColumn[] columns = (ExtraColumn[])Enum.GetValues(typeof(ExtraColumn));
             for (int i = 0; i < columns.Length; i += 3)
@@ -2400,13 +2630,13 @@ namespace PartExplorer
                     DrawColumnToggle(columns[i + 2]);
                 GUILayout.EndHorizontal();
             }
+
             GUILayout.Space(8f);
             if (GUILayout.Button("Clear Additional Columns", GUILayout.Width(190f)))
             {
                 extraColumns.Clear();
                 SaveSettings();
             }
-            GUILayout.EndScrollView();
         }
 
         private void DrawDetailFieldToggle(ref bool value, string caption)
@@ -2501,11 +2731,14 @@ namespace PartExplorer
         {
             visibleDetailSections.Clear();
             visibleCompareSections.Clear();
+            compressedCompareRows.Clear();
             foreach (InformationSection section in Enum.GetValues(typeof(InformationSection)))
             {
                 visibleDetailSections.Add(section);
                 visibleCompareSections.Add(section);
             }
+            ResetExportFieldsToDefaults();
+            exportDirectory = GetDefaultExportDirectory();
 
             try
             {
@@ -2516,6 +2749,7 @@ namespace PartExplorer
                         extraColumns.Add(column);
 
                 useAlternateSkin = configuration.GetValue("useAlternateSkin", false);
+                showTooltips = configuration.GetValue("showTooltips", true);
                 showPartPath = configuration.GetValue("showPartPath", false);
                 showDetailId = configuration.GetValue("showDetailId", false);
                 showDetailCost = configuration.GetValue("showDetailCost", true);
@@ -2536,8 +2770,23 @@ namespace PartExplorer
                 compareDifferencesOnly = configuration.GetValue("compareDifferencesOnly", false);
                 compareMarkLowHigh = configuration.GetValue("compareMarkLowHigh", false);
                 compareShowDeltas = configuration.GetValue("compareShowDeltas", false);
+                compareAbbreviatedDescription = configuration.GetValue("compareAbbreviatedDescription", false);
+                compareDescriptionMaxLength = Mathf.Clamp(configuration.GetValue("compareDescriptionMaxLength", 120), 20, 2000);
+                compareDescriptionMaxLengthText = compareDescriptionMaxLength.ToString(CultureInfo.InvariantCulture);
+                LoadCompressedCompareRows(configuration.GetValue("compressedCompareRows", string.Empty) ?? string.Empty);
                 int savedCompareWidthMode = Mathf.Clamp(configuration.GetValue("compareColumnWidthMode", (int)CompareColumnWidthMode.Normal), 0, 2);
                 compareColumnWidthMode = (CompareColumnWidthMode)savedCompareWidthMode;
+                exportDirectory = configuration.GetValue("exportDirectory", GetDefaultExportDirectory()) ?? GetDefaultExportDirectory();
+                exportFormat = (PartExportFormat)Mathf.Clamp(configuration.GetValue("exportFormat", (int)PartExportFormat.Csv), 0, 1);
+                compareExportLayout = (CompareExportLayout)Mathf.Clamp(configuration.GetValue("compareExportLayout", (int)CompareExportLayout.PartsAcrossColumns), 0, 1);
+                foreach (PartExportField field in Enum.GetValues(typeof(PartExportField)))
+                {
+                    bool defaultValue = exportFields.Contains(field);
+                    if (configuration.GetValue("exportField_" + field, defaultValue))
+                        exportFields.Add(field);
+                    else
+                        exportFields.Remove(field);
+                }
 
                 foreach (InformationSection section in Enum.GetValues(typeof(InformationSection)))
                 {
@@ -2557,6 +2806,38 @@ namespace PartExplorer
             }
         }
 
+        private string SerializeCompressedCompareRows()
+        {
+            if (compressedCompareRows.Count == 0)
+                return string.Empty;
+
+            return string.Join("|", compressedCompareRows
+                .Where(key => !string.IsNullOrEmpty(key))
+                .Select(key => Convert.ToBase64String(Encoding.UTF8.GetBytes(key)))
+                .ToArray());
+        }
+
+        private void LoadCompressedCompareRows(string serialized)
+        {
+            compressedCompareRows.Clear();
+            if (string.IsNullOrEmpty(serialized))
+                return;
+
+            foreach (string encoded in serialized.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                try
+                {
+                    string key = Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+                    if (!string.IsNullOrEmpty(key))
+                        compressedCompareRows.Add(key);
+                }
+                catch
+                {
+                    // Ignore malformed/stale saved row state and keep loading settings.
+                }
+            }
+        }
+
         private void SaveSettings()
         {
             if (configuration == null)
@@ -2566,6 +2847,7 @@ namespace PartExplorer
                 foreach (ExtraColumn column in Enum.GetValues(typeof(ExtraColumn)))
                     configuration.SetValue("column_" + column, extraColumns.Contains(column));
                 configuration.SetValue("useAlternateSkin", useAlternateSkin);
+                configuration.SetValue("showTooltips", showTooltips);
                 configuration.SetValue("showPartPath", showPartPath);
                 configuration.SetValue("showDetailId", showDetailId);
                 configuration.SetValue("showDetailCost", showDetailCost);
@@ -2586,7 +2868,15 @@ namespace PartExplorer
                 configuration.SetValue("compareDifferencesOnly", compareDifferencesOnly);
                 configuration.SetValue("compareMarkLowHigh", compareMarkLowHigh);
                 configuration.SetValue("compareShowDeltas", compareShowDeltas);
+                configuration.SetValue("compareAbbreviatedDescription", compareAbbreviatedDescription);
+                configuration.SetValue("compareDescriptionMaxLength", compareDescriptionMaxLength);
+                configuration.SetValue("compressedCompareRows", SerializeCompressedCompareRows());
                 configuration.SetValue("compareColumnWidthMode", (int)compareColumnWidthMode);
+                configuration.SetValue("exportDirectory", exportDirectory ?? string.Empty);
+                configuration.SetValue("exportFormat", (int)exportFormat);
+                configuration.SetValue("compareExportLayout", (int)compareExportLayout);
+                foreach (PartExportField field in Enum.GetValues(typeof(PartExportField)))
+                    configuration.SetValue("exportField_" + field, exportFields.Contains(field));
                 foreach (InformationSection section in Enum.GetValues(typeof(InformationSection)))
                 {
                     configuration.SetValue("detailsSection_" + section, visibleDetailSections.Contains(section));
@@ -2661,7 +2951,7 @@ namespace PartExplorer
                     string compareCountText = filteredOnly && parts.Count != comparisonPartKeys.Count
                         ? parts.Count.ToString(CultureInfo.InvariantCulture) + " compared • " + comparisonPartKeys.Count.ToString(CultureInfo.InvariantCulture) + " selected"
                         : parts.Count.ToString(CultureInfo.InvariantCulture) + " selected";
-                    GUILayout.Label(compareCountText, smallStyle);
+                    GUILayout.Label(compareCountText + " • max " + MaxComparisonParts.ToString(CultureInfo.InvariantCulture), smallStyle);
                 }
             }
 
@@ -2671,7 +2961,24 @@ namespace PartExplorer
                 DrawCompareColumnWidthButton("Compact", CompareColumnWidthMode.Compact, 75f);
                 DrawCompareColumnWidthButton("Normal", CompareColumnWidthMode.Normal, 75f);
                 DrawCompareColumnWidthButton("Wide", CompareColumnWidthMode.Wide, 75f);
+
+                GUILayout.Space(14f);
+                bool newAbbreviatedDescription = GUILayout.Toggle(
+                    compareAbbreviatedDescription,
+                    new GUIContent("Abbreviated Descr", "Limit the Compare Description row to the character count configured in Settings → Compare Rows."),
+                    GUILayout.Width(145f));
+                if (newAbbreviatedDescription != compareAbbreviatedDescription)
+                {
+                    compareAbbreviatedDescription = newAbbreviatedDescription;
+                    SaveSettings();
+                }
+
                 GUILayout.FlexibleSpace();
+                bool exportOldEnabled = GUI.enabled;
+                GUI.enabled = exportOldEnabled && parts != null && parts.Count > 0;
+                if (GUILayout.Button(new GUIContent("Export", "Export the current comparison as CSV or JSON"), GUILayout.Width(70f)))
+                    OpenExportWindow(PartExportScope.CompareParts);
+                GUI.enabled = exportOldEnabled;
             }
 
             if (parts != null && parts.Count == 0)
@@ -2787,26 +3094,70 @@ namespace PartExplorer
                         }
                     }
 
+                    // Keep the header border from visually touching/overlapping
+                    // the first comparison row (normally the Description row).
+                    GUILayout.Space(CompareHeaderSpacing);
+
                     foreach (ComparisonRow row in rows)
                     {
                         // The row's internal Section still distinguishes duplicate labels,
                         // but the visible description is intentionally just the detail label.
                         string rowCaption = row.Label;
+                        string rowKey = GetComparisonRowKey(row);
+                        bool compressed = compressedCompareRows.Contains(rowKey);
                         List<string> displayValues = BuildComparisonDisplayValues(row, parts);
-                        float rowHeight = Mathf.Max(CompareMinimumRowHeight,
-                            compareLabelStyle.CalcHeight(new GUIContent(rowCaption), CompareLabelColumnWidth));
+                        bool isDescriptionRow = IsPrimaryDescriptionRow(row);
+                        float verticalPadding = isDescriptionRow ? CompareDescriptionVerticalPadding : 0f;
+                        float labelTextWidth = Mathf.Max(20f, CompareLabelColumnWidth - CompareRowCompressButtonWidth);
 
-                        for (int partIndex = 0; partIndex < parts.Count; partIndex++)
+                        float rowHeight;
+                        if (compressed)
                         {
-                            rowHeight = Mathf.Max(rowHeight,
-                                compareCellStyle.CalcHeight(new GUIContent(displayValues[partIndex]), partColumnWidth));
+                            rowHeight = CompareCompressedRowHeight;
+                        }
+                        else
+                        {
+                            rowHeight = Mathf.Max(CompareMinimumRowHeight,
+                                compareLabelStyle.CalcHeight(new GUIContent(rowCaption), labelTextWidth));
+
+                            for (int partIndex = 0; partIndex < parts.Count; partIndex++)
+                            {
+                                rowHeight = Mathf.Max(rowHeight,
+                                    compareCellStyle.CalcHeight(new GUIContent(displayValues[partIndex]), partColumnWidth));
+                            }
+
+                            rowHeight += verticalPadding * 2f;
                         }
 
                         GUILayout.BeginHorizontal();
                         Rect rowLabelRect = GUILayoutUtility.GetRect(
                             CompareLabelColumnWidth, rowHeight,
                             GUILayout.Width(CompareLabelColumnWidth), GUILayout.Height(rowHeight));
-                        GUI.Label(rowLabelRect, rowCaption, compareLabelStyle);
+
+                        Rect compressButtonRect = new Rect(
+                            rowLabelRect.x + 1f,
+                            rowLabelRect.y + Mathf.Max(0f, (rowLabelRect.height - 18f) * 0.5f),
+                            18f,
+                            18f);
+                        string compressTooltip = compressed
+                            ? "Expand this comparison row"
+                            : "Compress this comparison row to a single line";
+                        if (GUI.Button(compressButtonRect, new GUIContent(compressed ? "+" : "-", compressTooltip)))
+                        {
+                            if (compressed)
+                                compressedCompareRows.Remove(rowKey);
+                            else
+                                compressedCompareRows.Add(rowKey);
+                            SaveSettings();
+                        }
+
+                        Rect rowLabelContentRect = new Rect(
+                            rowLabelRect.x + CompareRowCompressButtonWidth,
+                            rowLabelRect.y + verticalPadding,
+                            Mathf.Max(0f, rowLabelRect.width - CompareRowCompressButtonWidth),
+                            Mathf.Max(0f, rowLabelRect.height - verticalPadding * 2f));
+                        GUIStyle rowLabelStyle = compressed ? compareCompressedLabelStyle : compareLabelStyle;
+                        GUI.Label(rowLabelContentRect, new GUIContent(rowCaption, compressed ? rowCaption : string.Empty), rowLabelStyle);
                         if (parts.Count > 0)
                             GUILayout.Space(CompareColumnSpacing);
 
@@ -2818,7 +3169,7 @@ namespace PartExplorer
                                 GUILayout.Width(partColumnWidth), GUILayout.Height(rowHeight));
 
                             DrawComparisonCell(cellRect, displayValues[partIndex],
-                                compareHighlightDifferences && rowDiffers);
+                                compareHighlightDifferences && rowDiffers, verticalPadding, compressed);
 
                             if (partIndex < parts.Count - 1)
                                 GUILayout.Space(CompareColumnSpacing);
@@ -2831,27 +3182,42 @@ namespace PartExplorer
             }
         }
 
-        private void DrawComparisonCell(Rect cellRect, string displayValue, bool highlighted)
+        private void DrawComparisonCell(Rect cellRect, string displayValue, bool highlighted,
+            float verticalPadding = 0f, bool compressed = false)
         {
+            Rect textRect = new Rect(
+                cellRect.x, cellRect.y + verticalPadding,
+                cellRect.width, Mathf.Max(0f, cellRect.height - verticalPadding * 2f));
+            GUIContent content = new GUIContent(displayValue, compressed ? displayValue : string.Empty);
+            GUIStyle cellStyle = compressed ? compareCompressedCellStyle : compareCellStyle;
+            GUIStyle highlightedTextStyle = compressed ? compareCompressedHighlightedCellTextStyle : compareHighlightedCellTextStyle;
+
             if (!highlighted)
             {
-                GUI.Label(cellRect, displayValue, compareCellStyle);
+                GUI.Label(textRect, content, cellStyle);
                 return;
             }
 
-            // Keep the normal box border, but fill the inside with an intentionally
-            // bright yellow so the difference remains obvious with either KSP skin.
-            GUI.Box(cellRect, GUIContent.none, compareCellStyle);
+            // Keep the normal box border, but fill the inside with the configured
+            // PartExplorer comparison highlight color.
+            GUI.Box(cellRect, GUIContent.none, cellStyle);
             Rect fillRect = new Rect(
                 cellRect.x + 2f,
                 cellRect.y + 2f,
                 Mathf.Max(0f, cellRect.width - 4f),
                 Mathf.Max(0f, cellRect.height - 4f));
             Color oldColor = GUI.color;
-            GUI.color = new Color(1f, 1f, 0.05f, 1f);
+            GUI.color = new Color(239f/255f, 203f/255f, 5f/255f, 1f);
             GUI.DrawTexture(fillRect, Texture2D.whiteTexture, ScaleMode.StretchToFill, false);
             GUI.color = oldColor;
-            GUI.Label(cellRect, displayValue, compareHighlightedCellTextStyle);
+            GUI.Label(textRect, content, highlightedTextStyle);
+        }
+
+        private static string GetComparisonRowKey(ComparisonRow row)
+        {
+            if (row == null)
+                return string.Empty;
+            return (row.Section ?? string.Empty) + "\u001f" + (row.Label ?? string.Empty);
         }
 
         private List<string> BuildComparisonDisplayValues(ComparisonRow row, IList<PartRecord> parts)
@@ -2859,6 +3225,12 @@ namespace PartExplorer
             var result = new List<string>(parts.Count);
             for (int i = 0; i < parts.Count; i++)
                 result.Add(GetComparisonDisplayValue(row, parts[i]));
+
+            if (compareAbbreviatedDescription && IsPrimaryDescriptionRow(row))
+            {
+                for (int i = 0; i < result.Count; i++)
+                    result[i] = AbbreviateComparisonDescription(result[i], compareDescriptionMaxLength);
+            }
 
             if ((!compareMarkLowHigh && !compareShowDeltas) || parts.Count < 2)
                 return result;
@@ -2904,6 +3276,28 @@ namespace PartExplorer
             }
 
             return result;
+        }
+
+        private static bool IsPrimaryDescriptionRow(ComparisonRow row)
+        {
+            return row != null &&
+                string.Equals(row.Section, "Part Information", StringComparison.Ordinal) &&
+                string.Equals(row.Label, "Description", StringComparison.Ordinal);
+        }
+
+        private static string AbbreviateComparisonDescription(string value, int maxLength)
+        {
+            if (string.IsNullOrEmpty(value) || value == "—")
+                return value;
+
+            maxLength = Mathf.Clamp(maxLength, 20, 2000);
+            if (value.Length <= maxLength)
+                return value;
+
+            if (maxLength <= 3)
+                return value.Substring(0, maxLength);
+
+            return value.Substring(0, maxLength - 3).TrimEnd() + "...";
         }
 
         private static bool TryGetComparableNumericValues(ComparisonRow row, IList<PartRecord> parts,
@@ -3220,8 +3614,7 @@ namespace PartExplorer
             try
             {
                 EditorLogic.fetch.SpawnPart(partToAdd);
-                windowVisible = false;
-                DestroyRotatingPreview();
+                ToggleWindowOff();
                 if (toolbarControl != null)
                     toolbarControl.SetFalse(false);
             }
@@ -3271,14 +3664,21 @@ namespace PartExplorer
             GUI.enabled = oldEnabled;
             itemRect.y += itemHeight;
             bool selected = IsSelectedForComparison(partContextMenuPart);
+            bool canChangeCompareSelection = selected || comparisonPartKeys.Count < MaxComparisonParts;
             string compareCaption = selected ? "Remove from Compare" : "Add to Compare";
-            if (GUI.Button(itemRect, compareCaption))
+            GUI.enabled = oldEnabled && canChangeCompareSelection;
+            string compareTooltip = canChangeCompareSelection
+                ? compareCaption
+                : "Comparison is limited to " + MaxComparisonParts.ToString(CultureInfo.InvariantCulture) + " parts";
+            if (GUI.Button(itemRect, new GUIContent(compareCaption, compareTooltip)))
             {
                 SetComparisonSelected(partContextMenuPart, !selected);
                 showPartContextMenu = false;
                 partContextMenuPart = null;
+                GUI.enabled = oldEnabled;
                 return;
             }
+            GUI.enabled = oldEnabled;
 
             itemRect.y += itemHeight;
             bool hasId = !string.IsNullOrEmpty(partContextMenuPart.Id);
@@ -3316,6 +3716,9 @@ namespace PartExplorer
 
         private void DrawActiveTooltip()
         {
+            if (!showTooltips)
+                return;
+
             string tooltip = GUI.tooltip;
             if (string.IsNullOrEmpty(tooltip) || Event.current == null || Event.current.type != EventType.Repaint)
                 return;
@@ -3594,6 +3997,896 @@ namespace PartExplorer
             GUILayout.EndHorizontal();
         }
 
+
+        private void OpenExportWindow(PartExportScope preferredScope)
+        {
+            exportScope = preferredScope;
+            exportStatus = string.Empty;
+            if (string.IsNullOrWhiteSpace(exportDirectory))
+                exportDirectory = GetDefaultExportDirectory();
+            exportFileName = BuildDefaultExportFileName();
+            exportVisible = true;
+
+            float width = 700f;
+            float height = 690f;
+            exportWindowRect.width = width;
+            exportWindowRect.height = height;
+            exportWindowRect.x = Mathf.Clamp(windowRect.center.x - width * 0.5f, 0f, Mathf.Max(0f, Screen.width - width));
+            exportWindowRect.y = Mathf.Clamp(windowRect.center.y - height * 0.5f, 0f, Mathf.Max(0f, Screen.height - height));
+        }
+
+        private void DrawExportWindow(int id)
+        {
+            GUILayout.BeginVertical();
+            GUILayout.Label("Export cached PartExplorer data", titleStyle);
+            GUILayout.Label("Exports use the current in-memory part cache; no KSP part rescan is performed.", smallStyle);
+            GUILayout.Space(6f);
+
+            GUILayout.Label("Scope", sectionStyle);
+            using (new GUILayout.HorizontalScope())
+            {
+                DrawExportScopeButton("Current results", PartExportScope.CurrentResults, 115f);
+                DrawExportScopeButton("All parts", PartExportScope.AllParts, 85f);
+                DrawExportScopeButton("Selected parts", PartExportScope.SelectedParts, 105f);
+                DrawExportScopeButton("Compare parts", PartExportScope.CompareParts, 105f);
+                DrawExportScopeButton("Current mod", PartExportScope.CurrentMod, 95f);
+            }
+
+            string scopeInfo = GetExportScopeDescription();
+            if (!string.IsNullOrEmpty(scopeInfo))
+                GUILayout.Label(scopeInfo, smallStyle);
+
+            GUILayout.Space(7f);
+            GUILayout.Label("Format", sectionStyle);
+            using (new GUILayout.HorizontalScope())
+            {
+                DrawExportFormatButton("CSV", PartExportFormat.Csv, 85f);
+                DrawExportFormatButton("JSON", PartExportFormat.Json, 85f);
+                GUILayout.FlexibleSpace();
+            }
+
+            if (exportScope == PartExportScope.CompareParts && exportFormat == PartExportFormat.Csv)
+            {
+                GUILayout.Space(5f);
+                GUILayout.Label("Comparison layout", sectionStyle);
+                using (new GUILayout.HorizontalScope())
+                {
+                    DrawCompareExportLayoutButton("Parts across columns", CompareExportLayout.PartsAcrossColumns, 150f);
+                    DrawCompareExportLayoutButton("Parts down rows", CompareExportLayout.PartsDownRows, 135f);
+                    GUILayout.FlexibleSpace();
+                }
+            }
+
+            GUILayout.Space(7f);
+            GUILayout.Label("Fields", sectionStyle);
+            if (exportScope == PartExportScope.CompareParts)
+            {
+                GUILayout.Label("Compare exports use the rows currently enabled in Settings → Compare Rows. Differences-only and displayed delta/low-high annotations are honored.", descriptionStyle);
+            }
+            else
+            {
+                using (new GUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Select All", GUILayout.Width(85f)))
+                    {
+                        foreach (PartExportField field in Enum.GetValues(typeof(PartExportField)))
+                            exportFields.Add(field);
+                        SaveSettings();
+                    }
+                    if (GUILayout.Button("Clear All", GUILayout.Width(85f)))
+                    {
+                        exportFields.Clear();
+                        SaveSettings();
+                    }
+                    if (GUILayout.Button("Defaults", GUILayout.Width(85f)))
+                    {
+                        ResetExportFieldsToDefaults();
+                        SaveSettings();
+                    }
+                    GUILayout.FlexibleSpace();
+                }
+
+                exportFieldScroll = GUILayout.BeginScrollView(exportFieldScroll, GUI.skin.box, GUILayout.Height(220f));
+                PartExportField[] values = (PartExportField[])Enum.GetValues(typeof(PartExportField));
+                for (int i = 0; i < values.Length; i += 2)
+                {
+                    using (new GUILayout.HorizontalScope())
+                    {
+                        DrawExportFieldToggle(values[i]);
+                        if (i + 1 < values.Length)
+                            DrawExportFieldToggle(values[i + 1]);
+                    }
+                }
+                GUILayout.EndScrollView();
+            }
+
+            GUILayout.Space(7f);
+            GUILayout.Label("Destination", sectionStyle);
+            using (new GUILayout.HorizontalScope())
+            {
+                GUILayout.Label("Folder:", GUILayout.Width(55f));
+                exportDirectory = GUILayout.TextField(exportDirectory ?? string.Empty, GUILayout.ExpandWidth(true));
+                if (GUILayout.Button("Default", GUILayout.Width(70f)))
+                    exportDirectory = GetDefaultExportDirectory();
+            }
+            using (new GUILayout.HorizontalScope())
+            {
+                GUILayout.Label("File:", GUILayout.Width(55f));
+                exportFileName = GUILayout.TextField(exportFileName ?? string.Empty, GUILayout.ExpandWidth(true));
+                if (GUILayout.Button("Generate", GUILayout.Width(70f)))
+                    exportFileName = BuildDefaultExportFileName();
+            }
+
+            if (!string.IsNullOrEmpty(exportStatus))
+            {
+                GUILayout.Space(5f);
+                GUILayout.Label(exportStatus, descriptionStyle);
+            }
+
+            GUILayout.FlexibleSpace();
+            using (new GUILayout.HorizontalScope())
+            {
+                GUILayout.FlexibleSpace();
+                bool oldEnabled = GUI.enabled;
+                GUI.enabled = oldEnabled && CanExportCurrentSelection();
+                if (GUILayout.Button("Export", GUILayout.Width(95f)))
+                    PerformExport();
+                GUI.enabled = oldEnabled;
+                if (GUILayout.Button("Close", GUILayout.Width(95f)))
+                {
+                    exportVisible = false;
+                    SaveSettings();
+                }
+                GUILayout.FlexibleSpace();
+            }
+            GUILayout.EndVertical();
+            GUI.DragWindow();
+        }
+
+        private void DrawExportScopeButton(string caption, PartExportScope scope, float width)
+        {
+            bool oldEnabled = GUI.enabled;
+            if (scope == PartExportScope.CurrentMod)
+                GUI.enabled = oldEnabled && !string.IsNullOrEmpty(selectedMod);
+            else if (scope == PartExportScope.SelectedParts || scope == PartExportScope.CompareParts)
+                GUI.enabled = oldEnabled && comparisonPartKeys.Count > 0;
+
+            bool selected = exportScope == scope;
+            if (GUILayout.Toggle(selected, caption, GUI.skin.button, GUILayout.Width(width)) && !selected)
+            {
+                exportScope = scope;
+                exportStatus = string.Empty;
+                exportFileName = BuildDefaultExportFileName();
+            }
+            GUI.enabled = oldEnabled;
+        }
+
+        private void DrawExportFormatButton(string caption, PartExportFormat format, float width)
+        {
+            bool selected = exportFormat == format;
+            if (GUILayout.Toggle(selected, caption, GUI.skin.button, GUILayout.Width(width)) && !selected)
+            {
+                exportFormat = format;
+                exportStatus = string.Empty;
+                exportFileName = BuildDefaultExportFileName();
+                SaveSettings();
+            }
+        }
+
+        private void DrawCompareExportLayoutButton(string caption, CompareExportLayout layout, float width)
+        {
+            bool selected = compareExportLayout == layout;
+            if (GUILayout.Toggle(selected, caption, GUI.skin.button, GUILayout.Width(width)) && !selected)
+            {
+                compareExportLayout = layout;
+                SaveSettings();
+            }
+        }
+
+        private void DrawExportFieldToggle(PartExportField field)
+        {
+            bool oldValue = exportFields.Contains(field);
+            bool newValue = GUILayout.Toggle(oldValue, GetExportFieldLabel(field), GUILayout.Width(315f));
+            if (newValue == oldValue)
+                return;
+            if (newValue)
+                exportFields.Add(field);
+            else
+                exportFields.Remove(field);
+            SaveSettings();
+        }
+
+        private void ResetExportFieldsToDefaults()
+        {
+            exportFields.Clear();
+            exportFields.Add(PartExportField.Title);
+            exportFields.Add(PartExportField.InternalName);
+            exportFields.Add(PartExportField.Mod);
+            exportFields.Add(PartExportField.Category);
+            exportFields.Add(PartExportField.Manufacturer);
+            exportFields.Add(PartExportField.Description);
+            exportFields.Add(PartExportField.Mass);
+            exportFields.Add(PartExportField.Cost);
+            exportFields.Add(PartExportField.EntryCost);
+            exportFields.Add(PartExportField.TechRequired);
+            exportFields.Add(PartExportField.BulkheadProfiles);
+            exportFields.Add(PartExportField.CrewCapacity);
+        }
+
+        private static string GetExportFieldLabel(PartExportField field)
+        {
+            switch (field)
+            {
+                case PartExportField.Title: return "Title";
+                case PartExportField.InternalName: return "Internal Part Name";
+                case PartExportField.Path: return "Part Path";
+                case PartExportField.Mod: return "Mod";
+                case PartExportField.Category: return "Category";
+                case PartExportField.Manufacturer: return "Manufacturer";
+                case PartExportField.Description: return "Description";
+                case PartExportField.Mass: return "Mass";
+                case PartExportField.Cost: return "Cost";
+                case PartExportField.EntryCost: return "Entry Cost";
+                case PartExportField.TechRequired: return "Tech Required";
+                case PartExportField.BulkheadProfiles: return "Bulkhead Profiles";
+                case PartExportField.CrewCapacity: return "Crew Capacity";
+                case PartExportField.MaxTemperature: return "Max Temperature";
+                case PartExportField.ImpactTolerance: return "Impact Tolerance";
+                case PartExportField.GTolerance: return "G Tolerance";
+                case PartExportField.Modules: return "Modules";
+                case PartExportField.Resources: return "Resources";
+                case PartExportField.EngineData: return "Engine Data";
+                case PartExportField.ScienceData: return "Science Data";
+                case PartExportField.ScanSatData: return "SCANsat Data";
+                default: return field.ToString();
+            }
+        }
+
+        private string GetExportScopeDescription()
+        {
+            List<PartRecord> exportParts = GetPartsForExportScope();
+            string count = exportParts.Count.ToString(CultureInfo.InvariantCulture) + " part" + (exportParts.Count == 1 ? string.Empty : "s");
+            switch (exportScope)
+            {
+                case PartExportScope.CurrentResults: return count + " matching the current PartExplorer/editor filters.";
+                case PartExportScope.AllParts: return count + " from the loaded PartExplorer cache.";
+                case PartExportScope.SelectedParts: return count + " selected with the Compare checkboxes, regardless of current filters.";
+                case PartExportScope.CompareParts: return count + " currently visible on the Compare screen.";
+                case PartExportScope.CurrentMod: return string.IsNullOrEmpty(selectedMod) ? "Select a mod on the Parts tab first." : count + " from " + selectedMod + ".";
+                default: return count;
+            }
+        }
+
+        private bool CanExportCurrentSelection()
+        {
+            if (exportScope != PartExportScope.CompareParts && exportFields.Count == 0)
+                return false;
+            if (string.IsNullOrWhiteSpace(exportDirectory) || string.IsNullOrWhiteSpace(exportFileName))
+                return false;
+            return GetPartsForExportScope().Count > 0;
+        }
+
+        private List<PartRecord> GetPartsForExportScope()
+        {
+            switch (exportScope)
+            {
+                case PartExportScope.CurrentResults:
+                    return new List<PartRecord>(GetFilteredSorted());
+                case PartExportScope.AllParts:
+                    return activeParts.Where(part => part != null)
+                        .OrderBy(part => part.Part ?? string.Empty, StringComparer.OrdinalIgnoreCase).ToList();
+                case PartExportScope.SelectedParts:
+                    return GetAllSelectedParts();
+                case PartExportScope.CompareParts:
+                    return GetComparisonParts();
+                case PartExportScope.CurrentMod:
+                    if (string.IsNullOrEmpty(selectedMod))
+                        return new List<PartRecord>();
+                    return activeParts.Where(part => part != null && string.Equals(part.ModName, selectedMod, StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(part => part.Part ?? string.Empty, StringComparer.OrdinalIgnoreCase).ToList();
+                default:
+                    return new List<PartRecord>();
+            }
+        }
+
+        private List<PartRecord> GetAllSelectedParts()
+        {
+            var result = new List<PartRecord>();
+            foreach (string key in comparisonPartKeys)
+            {
+                PartRecord part = activeParts.FirstOrDefault(candidate =>
+                    string.Equals(GetComparisonPartKey(candidate), key, StringComparison.OrdinalIgnoreCase));
+                if (part != null)
+                    result.Add(part);
+            }
+            return result;
+        }
+
+        private string BuildDefaultExportFileName()
+        {
+            string label;
+            switch (exportScope)
+            {
+                case PartExportScope.AllParts: label = "AllParts"; break;
+                case PartExportScope.SelectedParts: label = "SelectedParts"; break;
+                case PartExportScope.CompareParts: label = "Comparison"; break;
+                case PartExportScope.CurrentMod: label = string.IsNullOrEmpty(selectedMod) ? "CurrentMod" : SanitizeFileNamePart(selectedMod); break;
+                default:
+                    if (!string.IsNullOrEmpty(selectedCategory))
+                        label = SanitizeFileNamePart(FriendlyCategory(selectedCategory));
+                    else if (!string.IsNullOrEmpty(selectedMod))
+                        label = SanitizeFileNamePart(selectedMod);
+                    else
+                        label = "FilteredParts";
+                    break;
+            }
+            string extension = exportFormat == PartExportFormat.Json ? ".json" : ".csv";
+            return "PartExplorer_" + label + "_" + DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + extension;
+        }
+
+        private static string SanitizeFileNamePart(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "Export";
+            char[] invalid = Path.GetInvalidFileNameChars();
+            var builder = new StringBuilder(value.Length);
+            foreach (char ch in value)
+            {
+                if (invalid.Contains(ch))
+                    continue;
+                if (char.IsWhiteSpace(ch))
+                    builder.Append('_');
+                else
+                    builder.Append(ch);
+            }
+            return builder.Length == 0 ? "Export" : builder.ToString();
+        }
+
+        private static string GetDefaultExportDirectory()
+        {
+            return Path.Combine(KSPUtil.ApplicationRootPath, "GameData", "PartExplorer", "Exports");
+        }
+
+        private void PerformExport()
+        {
+            try
+            {
+                List<PartRecord> exportParts = GetPartsForExportScope();
+                if (exportParts.Count == 0)
+                {
+                    exportStatus = "Nothing to export for the selected scope.";
+                    return;
+                }
+
+                string directory = (exportDirectory ?? string.Empty).Trim();
+                if (!Path.IsPathRooted(directory))
+                    directory = Path.Combine(KSPUtil.ApplicationRootPath, directory);
+                Directory.CreateDirectory(directory);
+
+                string fileName = Path.GetFileName((exportFileName ?? string.Empty).Trim());
+                if (string.IsNullOrEmpty(fileName))
+                    fileName = BuildDefaultExportFileName();
+                string wantedExtension = exportFormat == PartExportFormat.Json ? ".json" : ".csv";
+                if (!string.Equals(Path.GetExtension(fileName), wantedExtension, StringComparison.OrdinalIgnoreCase))
+                    fileName = Path.GetFileNameWithoutExtension(fileName) + wantedExtension;
+
+                string path = Path.Combine(directory, fileName);
+                if (exportScope == PartExportScope.CompareParts)
+                {
+                    if (exportFormat == PartExportFormat.Json)
+                        WriteCompareJson(path, exportParts);
+                    else
+                        WriteCompareCsv(path, exportParts);
+                }
+                else
+                {
+                    List<PartExportField> fields = exportFields.OrderBy(field => (int)field).ToList();
+                    if (exportFormat == PartExportFormat.Json)
+                        WritePartsJson(path, exportParts, fields);
+                    else
+                        WritePartsCsv(path, exportParts, fields);
+                }
+
+                exportDirectory = directory;
+                exportFileName = fileName;
+                exportStatus = "Exported " + exportParts.Count.ToString(CultureInfo.InvariantCulture) +
+                    " part" + (exportParts.Count == 1 ? string.Empty : "s") + " to " + path;
+                SaveSettings();
+                Debug.Log("[PartExplorer] " + exportStatus);
+            }
+            catch (Exception ex)
+            {
+                exportStatus = "Export failed: " + ex.Message;
+                Debug.LogError("[PartExplorer] Export failed: " + ex);
+            }
+        }
+
+        private void WritePartsCsv(string path, IList<PartRecord> exportParts, IList<PartExportField> fields)
+        {
+            using (var writer = new StreamWriter(path, false, new UTF8Encoding(true)))
+            {
+                writer.WriteLine(string.Join(",", fields.Select(field => CsvEscape(GetExportFieldLabel(field))).ToArray()));
+                foreach (PartRecord part in exportParts)
+                {
+                    AvailablePart availablePart = FindAvailablePart(part);
+                    writer.WriteLine(string.Join(",", fields.Select(field => CsvEscape(GetExportFieldValue(part, availablePart, field))).ToArray()));
+                }
+            }
+        }
+
+        private void WritePartsJson(string path, IList<PartRecord> exportParts, IList<PartExportField> fields)
+        {
+            using (var writer = new StreamWriter(path, false, new UTF8Encoding(true)))
+            {
+                writer.WriteLine("{");
+                writer.WriteLine("  \"exportVersion\": 1,");
+                writer.WriteLine("  \"partExplorerVersion\": \"" + CurrentVersion + "\",");
+                writer.WriteLine("  \"generatedUtc\": \"" + JsonEscape(DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)) + "\",");
+                writer.WriteLine("  \"scope\": \"" + JsonEscape(exportScope.ToString()) + "\",");
+                writer.WriteLine("  \"parts\": [");
+                for (int index = 0; index < exportParts.Count; index++)
+                {
+                    PartRecord part = exportParts[index];
+                    AvailablePart availablePart = FindAvailablePart(part);
+                    writer.WriteLine("    {");
+                    for (int fieldIndex = 0; fieldIndex < fields.Count; fieldIndex++)
+                    {
+                        PartExportField field = fields[fieldIndex];
+                        string propertyName = GetExportJsonPropertyName(field);
+                        string suffix = fieldIndex == fields.Count - 1 ? string.Empty : ",";
+                        writer.WriteLine("      \"" + JsonEscape(propertyName) + "\": " +
+                            GetExportJsonValue(part, availablePart, field) + suffix);
+                    }
+                    writer.Write("    }");
+                    writer.WriteLine(index == exportParts.Count - 1 ? string.Empty : ",");
+                }
+                writer.WriteLine("  ]");
+                writer.WriteLine("}");
+            }
+        }
+
+        private void WriteCompareCsv(string path, IList<PartRecord> exportParts)
+        {
+            List<ComparisonRow> rows = BuildComparisonRows(exportParts);
+            if (compareDifferencesOnly && exportParts.Count > 1)
+                rows = rows.Where(row => IsComparisonRowDifferent(row, exportParts)).ToList();
+
+            var displayRows = rows.Select(row => new
+            {
+                Row = row,
+                Label = GetExportComparisonRowLabel(row),
+                Values = BuildComparisonDisplayValues(row, exportParts)
+            }).ToList();
+            List<string> partLabels = GetCompareExportPartLabels(exportParts);
+
+            using (var writer = new StreamWriter(path, false, new UTF8Encoding(true)))
+            {
+                if (compareExportLayout == CompareExportLayout.PartsAcrossColumns)
+                {
+                    var header = new List<string> { "Property" };
+                    header.AddRange(partLabels);
+                    writer.WriteLine(string.Join(",", header.Select(CsvEscape).ToArray()));
+                    foreach (var row in displayRows)
+                    {
+                        var cells = new List<string> { row.Label };
+                        cells.AddRange(row.Values);
+                        writer.WriteLine(string.Join(",", cells.Select(CsvEscape).ToArray()));
+                    }
+                }
+                else
+                {
+                    var header = new List<string> { "Part" };
+                    header.AddRange(displayRows.Select(row => row.Label));
+                    writer.WriteLine(string.Join(",", header.Select(CsvEscape).ToArray()));
+                    for (int partIndex = 0; partIndex < exportParts.Count; partIndex++)
+                    {
+                        var cells = new List<string> { partLabels[partIndex] };
+                        cells.AddRange(displayRows.Select(row => row.Values[partIndex]));
+                        writer.WriteLine(string.Join(",", cells.Select(CsvEscape).ToArray()));
+                    }
+                }
+            }
+        }
+
+        private void WriteCompareJson(string path, IList<PartRecord> exportParts)
+        {
+            List<ComparisonRow> rows = BuildComparisonRows(exportParts);
+            if (compareDifferencesOnly && exportParts.Count > 1)
+                rows = rows.Where(row => IsComparisonRowDifferent(row, exportParts)).ToList();
+
+            List<string> partLabels = GetCompareExportPartLabels(exportParts);
+            using (var writer = new StreamWriter(path, false, new UTF8Encoding(true)))
+            {
+                writer.WriteLine("{");
+                writer.WriteLine("  \"exportVersion\": 1,");
+                writer.WriteLine("  \"partExplorerVersion\": \"" + CurrentVersion + "\",");
+                writer.WriteLine("  \"generatedUtc\": \"" + JsonEscape(DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)) + "\",");
+                writer.WriteLine("  \"scope\": \"CompareParts\",");
+                writer.WriteLine("  \"parts\": [" + string.Join(", ", partLabels.Select(JsonString).ToArray()) + "],");
+                writer.WriteLine("  \"rows\": [");
+                for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+                {
+                    ComparisonRow row = rows[rowIndex];
+                    List<string> displayValues = BuildComparisonDisplayValues(row, exportParts);
+                    writer.WriteLine("    {");
+                    writer.WriteLine("      \"section\": \"" + JsonEscape(row.Section ?? string.Empty) + "\",");
+                    writer.WriteLine("      \"property\": \"" + JsonEscape(row.Label ?? string.Empty) + "\",");
+                    writer.WriteLine("      \"values\": {");
+                    for (int partIndex = 0; partIndex < exportParts.Count; partIndex++)
+                    {
+                        string suffix = partIndex == exportParts.Count - 1 ? string.Empty : ",";
+                        writer.WriteLine("        \"" + JsonEscape(partLabels[partIndex]) + "\": \"" +
+                            JsonEscape(displayValues[partIndex]) + "\"" + suffix);
+                    }
+                    writer.WriteLine("      }");
+                    writer.Write("    }");
+                    writer.WriteLine(rowIndex == rows.Count - 1 ? string.Empty : ",");
+                }
+                writer.WriteLine("  ]");
+                writer.WriteLine("}");
+            }
+        }
+
+        private string GetExportFieldValue(PartRecord part, AvailablePart availablePart, PartExportField field)
+        {
+            if (part == null)
+                return string.Empty;
+            switch (field)
+            {
+                case PartExportField.Title: return part.Part ?? string.Empty;
+                case PartExportField.InternalName: return part.Id ?? string.Empty;
+                case PartExportField.Path: return part.Path ?? string.Empty;
+                case PartExportField.Mod: return part.ModName ?? string.Empty;
+                case PartExportField.Category: return FriendlyCategory(part.Category ?? string.Empty);
+                case PartExportField.Manufacturer: return GetLocalizedAvailablePartValue(availablePart == null ? string.Empty : availablePart.manufacturer);
+                case PartExportField.Description: return part.Description ?? string.Empty;
+                case PartExportField.Mass: return FormatNumber(part.Mass, "0.###");
+                case PartExportField.Cost: return FormatNumber(part.Cost, "0");
+                case PartExportField.EntryCost: return availablePart == null ? string.Empty : availablePart.entryCost.ToString(CultureInfo.InvariantCulture);
+                case PartExportField.TechRequired: return GetPartConfigValue(availablePart, "TechRequired");
+                case PartExportField.BulkheadProfiles: return GetPartConfigValue(availablePart, "bulkheadProfiles");
+                case PartExportField.CrewCapacity:
+                    string crew = GetPartConfigValue(availablePart, "CrewCapacity");
+                    if (!string.IsNullOrEmpty(crew)) return crew;
+                    return availablePart != null && availablePart.partPrefab != null ? availablePart.partPrefab.CrewCapacity.ToString(CultureInfo.InvariantCulture) : string.Empty;
+                case PartExportField.MaxTemperature: return FormatNumber(part.MaxTemp, "0");
+                case PartExportField.ImpactTolerance: return FormatNumber(part.ToleranceMs, "0.#");
+                case PartExportField.GTolerance: return FormatNumber(part.ToleranceG, "0.#");
+                case PartExportField.Modules: return GetModuleSummary(availablePart);
+                case PartExportField.Resources: return GetResourceSummary(part);
+                case PartExportField.EngineData: return GetEngineSummary(availablePart);
+                case PartExportField.ScienceData: return GetScienceSummary(part);
+                case PartExportField.ScanSatData: return GetScanSatExportSummary(part);
+                default: return string.Empty;
+            }
+        }
+
+        private string GetExportJsonValue(PartRecord part, AvailablePart availablePart, PartExportField field)
+        {
+            switch (field)
+            {
+                case PartExportField.Modules: return GetModulesJson(availablePart);
+                case PartExportField.Resources: return GetResourcesJson(part);
+                case PartExportField.EngineData: return GetEnginesJson(availablePart);
+                case PartExportField.ScienceData: return GetScienceJson(part);
+                case PartExportField.ScanSatData: return GetScanSatJson(part);
+                default: return JsonString(GetExportFieldValue(part, availablePart, field));
+            }
+        }
+
+        private static string JsonString(string value)
+        {
+            return "\"" + JsonEscape(value ?? string.Empty) + "\"";
+        }
+
+        private static string GetModulesJson(AvailablePart availablePart)
+        {
+            if (availablePart == null || availablePart.partConfig == null)
+                return "[]";
+            try
+            {
+                string[] moduleNames = availablePart.partConfig.GetNodes("MODULE")
+                    .Select(node => node == null ? string.Empty : (node.GetValue("name") ?? string.Empty).Trim())
+                    .Where(name => !string.IsNullOrEmpty(name)).ToArray();
+                return "[" + string.Join(", ", moduleNames.Select(name => "{\"name\":" + JsonString(name) + "}").ToArray()) + "]";
+            }
+            catch { return "[]"; }
+        }
+
+        private static string GetResourcesJson(PartRecord part)
+        {
+            if (part == null || part.StockData == null)
+                return "[]";
+            return "[" + string.Join(", ", part.StockData.Resources.Where(resource => resource != null).Select(resource =>
+                "{\"name\":" + JsonString(resource.Name) +
+                ",\"amount\":" + JsonString(resource.Amount) +
+                ",\"maxAmount\":" + JsonString(resource.MaxAmount) + "}").ToArray()) + "]";
+        }
+
+        private static string GetEnginesJson(AvailablePart availablePart)
+        {
+            if (availablePart == null || availablePart.partConfig == null)
+                return "[]";
+            try
+            {
+                var engines = new List<string>();
+                foreach (ConfigNode module in availablePart.partConfig.GetNodes("MODULE"))
+                {
+                    if (module == null) continue;
+                    string moduleName = module.GetValue("name") ?? string.Empty;
+                    if (!string.Equals(moduleName, "ModuleEngines", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(moduleName, "ModuleEnginesFX", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string[] propellants = module.GetNodes("PROPELLANT")
+                        .Select(node => node == null ? string.Empty : (node.GetValue("name") ?? string.Empty).Trim())
+                        .Where(name => !string.IsNullOrEmpty(name)).ToArray();
+                    ConfigNode curve = module.GetNode("atmosphereCurve");
+                    string vacuum = curve == null ? string.Empty : GetCurveValue(curve, 0d);
+                    string seaLevel = curve == null ? string.Empty : GetCurveValue(curve, 1d);
+                    engines.Add("{\"module\":" + JsonString(moduleName) +
+                        ",\"minThrust\":" + JsonString(module.GetValue("minThrust") ?? string.Empty) +
+                        ",\"maxThrust\":" + JsonString(module.GetValue("maxThrust") ?? string.Empty) +
+                        ",\"vacuumIsp\":" + JsonString(vacuum) +
+                        ",\"seaLevelIsp\":" + JsonString(seaLevel) +
+                        ",\"propellants\":[" + string.Join(", ", propellants.Select(JsonString).ToArray()) + "]}");
+                }
+                return "[" + string.Join(", ", engines.ToArray()) + "]";
+            }
+            catch { return "[]"; }
+        }
+
+        private static string GetScienceJson(PartRecord part)
+        {
+            if (part == null || part.ScienceModules == null)
+                return "[]";
+            var modules = new List<string>();
+            foreach (ScienceModuleInfo module in part.ScienceModules)
+            {
+                if (module == null) continue;
+                string fields = "[" + string.Join(", ", module.Fields.Where(field => field != null).Select(field =>
+                    "{\"title\":" + JsonString(field.Title) + ",\"value\":" + JsonString(field.Value) + "}").ToArray()) + "]";
+                string inputs = "[" + string.Join(", ", module.InputResources.Where(resource => resource != null)
+                    .Select(resource => JsonString(resource.DisplayText)).ToArray()) + "]";
+                string outputs = "[" + string.Join(", ", module.OutputResources.Where(resource => resource != null)
+                    .Select(resource => JsonString(resource.DisplayText)).ToArray()) + "]";
+                modules.Add("{\"module\":" + JsonString(module.ModuleName ?? "Science module") +
+                    ",\"fields\":" + fields + ",\"inputResources\":" + inputs + ",\"outputResources\":" + outputs + "}");
+            }
+            return "[" + string.Join(", ", modules.ToArray()) + "]";
+        }
+
+        private static string GetScanSatJson(PartRecord part)
+        {
+            if (part == null || part.ScanSat == null || !part.ScanSat.HasScannerModules)
+                return "null";
+            return "{\"ecPerSec\":" + JsonString(FormatNumber(part.ScanSat.EcPerSec, "0.0#")) +
+                ",\"fieldOfView\":" + JsonString(FormatNumber(part.ScanSat.Fov, "0.##")) +
+                ",\"requiresDaylight\":" + (part.ScanSat.RequiresDaylight ? "true" : "false") +
+                ",\"science\":" + JsonString(FormatNumber(part.ScanSat.Science, "0.##")) +
+                ",\"biome\":" + JsonString(part.ScanSat.Biome) +
+                ",\"altimetry\":" + JsonString(part.ScanSat.Altimetry) +
+                ",\"visual\":" + JsonString(part.ScanSat.Visual) +
+                ",\"resource\":" + JsonString(part.ScanSat.Resource) +
+                ",\"anomaly\":" + JsonString(part.ScanSat.Anomaly) +
+                ",\"minAltitudeKm\":" + JsonString(part.ScanSat.MinAltitudeText) +
+                ",\"optimalAltitudeKm\":" + JsonString(part.ScanSat.OptimalAltitudeText) +
+                ",\"maxAltitudeKm\":" + JsonString(part.ScanSat.MaxAltitudeText) + "}";
+        }
+
+        private static List<string> GetCompareExportPartLabels(IList<PartRecord> exportParts)
+        {
+            var labels = new List<string>();
+            for (int i = 0; i < exportParts.Count; i++)
+            {
+                PartRecord part = exportParts[i];
+                string title = part == null ? string.Empty : (part.Part ?? string.Empty);
+                int sameTitleCount = exportParts.Count(candidate => candidate != null &&
+                    string.Equals(candidate.Part ?? string.Empty, title, StringComparison.OrdinalIgnoreCase));
+                string label = title;
+                if (sameTitleCount > 1 && part != null)
+                    label += " [" + (string.IsNullOrEmpty(part.ModName) ? part.Id : part.ModName) + "]";
+                if (labels.Any(existing => string.Equals(existing, label, StringComparison.OrdinalIgnoreCase)) && part != null)
+                    label += " [" + (part.Id ?? (i + 1).ToString(CultureInfo.InvariantCulture)) + "]";
+                labels.Add(label);
+            }
+            return labels;
+        }
+
+        private static string GetExportJsonPropertyName(PartExportField field)
+        {
+            switch (field)
+            {
+                case PartExportField.InternalName: return "internalName";
+                case PartExportField.EntryCost: return "entryCost";
+                case PartExportField.TechRequired: return "techRequired";
+                case PartExportField.BulkheadProfiles: return "bulkheadProfiles";
+                case PartExportField.CrewCapacity: return "crewCapacity";
+                case PartExportField.MaxTemperature: return "maxTemperature";
+                case PartExportField.ImpactTolerance: return "impactTolerance";
+                case PartExportField.GTolerance: return "gTolerance";
+                case PartExportField.EngineData: return "engineData";
+                case PartExportField.ScienceData: return "scienceData";
+                case PartExportField.ScanSatData: return "scanSatData";
+                default:
+                    string name = field.ToString();
+                    return char.ToLowerInvariant(name[0]) + name.Substring(1);
+            }
+        }
+
+        private static string GetLocalizedAvailablePartValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+            try { return KSP.Localization.Localizer.Format(value); }
+            catch { return value; }
+        }
+
+        private static string GetPartConfigValue(AvailablePart availablePart, string name)
+        {
+            if (availablePart == null || availablePart.partConfig == null || string.IsNullOrEmpty(name))
+                return string.Empty;
+            try
+            {
+                string value = availablePart.partConfig.GetValue(name);
+                return value == null ? string.Empty : value.Trim();
+            }
+            catch { return string.Empty; }
+        }
+
+        private static string GetModuleSummary(AvailablePart availablePart)
+        {
+            if (availablePart == null || availablePart.partConfig == null)
+                return string.Empty;
+            try
+            {
+                return string.Join("; ", availablePart.partConfig.GetNodes("MODULE")
+                    .Select(node => node == null ? string.Empty : (node.GetValue("name") ?? string.Empty).Trim())
+                    .Where(name => !string.IsNullOrEmpty(name)).ToArray());
+            }
+            catch { return string.Empty; }
+        }
+
+        private static string GetResourceSummary(PartRecord part)
+        {
+            if (part == null || part.StockData == null)
+                return string.Empty;
+            return string.Join("; ", part.StockData.Resources.Where(resource => resource != null).Select(resource =>
+                resource.Name + (string.IsNullOrEmpty(resource.DisplayText) ? string.Empty : "=" + resource.DisplayText)).ToArray());
+        }
+
+        private static string GetEngineSummary(AvailablePart availablePart)
+        {
+            if (availablePart == null || availablePart.partConfig == null)
+                return string.Empty;
+            try
+            {
+                var engines = new List<string>();
+                foreach (ConfigNode module in availablePart.partConfig.GetNodes("MODULE"))
+                {
+                    if (module == null) continue;
+                    string moduleName = module.GetValue("name") ?? string.Empty;
+                    if (!string.Equals(moduleName, "ModuleEngines", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(moduleName, "ModuleEnginesFX", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    var values = new List<string>();
+                    string min = module.GetValue("minThrust");
+                    string max = module.GetValue("maxThrust");
+                    if (!string.IsNullOrEmpty(min)) values.Add("minThrust=" + min);
+                    if (!string.IsNullOrEmpty(max)) values.Add("maxThrust=" + max);
+                    string propellants = string.Join("+", module.GetNodes("PROPELLANT")
+                        .Select(node => node == null ? string.Empty : (node.GetValue("name") ?? string.Empty).Trim())
+                        .Where(name => !string.IsNullOrEmpty(name)).ToArray());
+                    if (!string.IsNullOrEmpty(propellants)) values.Add("propellants=" + propellants);
+                    ConfigNode curve = module.GetNode("atmosphereCurve");
+                    if (curve != null)
+                    {
+                        string vacuum = GetCurveValue(curve, 0d);
+                        string seaLevel = GetCurveValue(curve, 1d);
+                        if (!string.IsNullOrEmpty(vacuum)) values.Add("vacIsp=" + vacuum);
+                        if (!string.IsNullOrEmpty(seaLevel)) values.Add("seaLevelIsp=" + seaLevel);
+                    }
+                    engines.Add(string.Join(", ", values.ToArray()));
+                }
+                return string.Join("; ", engines.Where(value => !string.IsNullOrEmpty(value)).ToArray());
+            }
+            catch { return string.Empty; }
+        }
+
+        private static string GetCurveValue(ConfigNode curve, double target)
+        {
+            if (curve == null) return string.Empty;
+            try
+            {
+                foreach (string key in curve.GetValues("key"))
+                {
+                    if (string.IsNullOrWhiteSpace(key)) continue;
+                    string[] pieces = key.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (pieces.Length < 2) continue;
+                    double x;
+                    if (double.TryParse(pieces[0], NumberStyles.Float, CultureInfo.InvariantCulture, out x) && Math.Abs(x - target) < 0.0001d)
+                        return pieces[1];
+                }
+            }
+            catch { }
+            return string.Empty;
+        }
+
+        private static string GetScienceSummary(PartRecord part)
+        {
+            if (part == null || part.ScienceModules == null)
+                return string.Empty;
+            var modules = new List<string>();
+            foreach (ScienceModuleInfo module in part.ScienceModules)
+            {
+                if (module == null) continue;
+                var values = new List<string>();
+                values.AddRange(module.Fields.Where(field => field != null).Select(field => field.Title + "=" + field.Value));
+                values.AddRange(module.InputResources.Where(resource => resource != null).Select(resource => "input=" + resource.DisplayText));
+                values.AddRange(module.OutputResources.Where(resource => resource != null).Select(resource => "output=" + resource.DisplayText));
+                modules.Add((module.ModuleName ?? "Science module") + (values.Count == 0 ? string.Empty : ": " + string.Join(", ", values.ToArray())));
+            }
+            return string.Join("; ", modules.ToArray());
+        }
+
+        private static string GetScanSatExportSummary(PartRecord part)
+        {
+            if (part == null || part.ScanSat == null || !part.ScanSat.HasScannerModules)
+                return string.Empty;
+            return "EC/s=" + FormatNumber(part.ScanSat.EcPerSec, "0.0#") +
+                "; FOV=" + FormatNumber(part.ScanSat.Fov, "0.##") +
+                "; daylight=" + (part.ScanSat.RequiresDaylight ? "Yes" : "No") +
+                "; science=" + FormatNumber(part.ScanSat.Science, "0.##") +
+                "; biome=" + part.ScanSat.Biome +
+                "; altimetry=" + part.ScanSat.Altimetry +
+                "; visual=" + part.ScanSat.Visual +
+                "; resource=" + part.ScanSat.Resource +
+                "; anomaly=" + part.ScanSat.Anomaly +
+                "; altitude=" + part.ScanSat.MinAltitudeText + "/" + part.ScanSat.OptimalAltitudeText + "/" + part.ScanSat.MaxAltitudeText + " km";
+        }
+
+        private static string CsvEscape(string value)
+        {
+            string text = value ?? string.Empty;
+            if (text.IndexOfAny(new[] { ',', '"', '\r', '\n' }) < 0)
+                return text;
+            return "\"" + text.Replace("\"", "\"\"") + "\"";
+        }
+
+        private static string JsonEscape(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+            var builder = new StringBuilder(value.Length + 16);
+            foreach (char ch in value)
+            {
+                switch (ch)
+                {
+                    case '\\': builder.Append("\\\\"); break;
+                    case '"': builder.Append("\\\""); break;
+                    case '\b': builder.Append("\\b"); break;
+                    case '\f': builder.Append("\\f"); break;
+                    case '\n': builder.Append("\\n"); break;
+                    case '\r': builder.Append("\\r"); break;
+                    case '\t': builder.Append("\\t"); break;
+                    default:
+                        if (ch < 32)
+                            builder.Append("\\u" + ((int)ch).ToString("x4", CultureInfo.InvariantCulture));
+                        else
+                            builder.Append(ch);
+                        break;
+                }
+            }
+            return builder.ToString();
+        }
+
+        private static string GetExportComparisonRowLabel(ComparisonRow row)
+        {
+            if (row == null) return string.Empty;
+            if (string.IsNullOrEmpty(row.Section) || string.Equals(row.Section, "Part Information", StringComparison.Ordinal))
+                return row.Label ?? string.Empty;
+            return row.Section + " / " + (row.Label ?? string.Empty);
+        }
 
         private void EnsurePartDataCache()
         {
