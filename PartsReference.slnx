@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="BuildRelease.bat" />
+    <File Path="deploy.bat" />
+    <File Path="jenkins.txt" />
+    <File Path="PartsReference.version" />
+  </Folder>
+  <Project Path="PartsReference/PartsReference.csproj" Id="a1c85d2e-4f9b-0f5b-0dfa-649e98afefef" />
+</Solution>

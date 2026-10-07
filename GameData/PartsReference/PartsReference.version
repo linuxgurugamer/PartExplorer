@@ -1,0 +1,26 @@
+﻿{
+  "NAME": "PartsReference",
+  "URL": "https://raw.githubusercontent.com/linuxgurugamer/PartsReference/refs/heads/master/PartsReference.version",
+  "DOWNLOAD": "https://github.com/linuxgurugamer/PartsReference/releases",
+  "VERSION": {
+    "MAJOR": 0,
+    "MINOR": 1,
+    "PATCH": 63,
+    "BUILD": 0
+  },
+  "KSP_VERSION": {
+    "MAJOR": 1,
+    "MINOR": 12,
+    "PATCH": 0
+  },
+  "KSP_VERSION_MIN": {
+    "MAJOR": 1,
+    "MINOR": 12,
+    "PATCH": 0
+  },
+  "KSP_VERSION_MAX": {
+    "MAJOR": 1,
+    "MINOR": 12,
+    "PATCH": 99
+  }
+}
