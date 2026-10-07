@@ -39,7 +39,7 @@
 3:README.md,GameData/PartExplorer
 
 # 4:SOURCDIR, DESTDIR
-4:Manual,PartExplorer/Manual
+4:Manual,PartExplorer
 
 
 # 5:ModuleManager
