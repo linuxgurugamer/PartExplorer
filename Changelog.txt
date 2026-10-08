@@ -1,0 +1,8 @@
+Changelog
+
+0.1.76
+	Added saving of window positions
+
+0.1.75
+	Initial release
+		

@@ -44,7 +44,7 @@ Part Explorer is a KSP 1 part browser and reference window. It can browse the pa
 - Loaded part information is cached after the first database build, so closing and reopening PartExplorer does not reparse every installed part; the cache automatically rebuilds if KSP replaces the loaded-parts list or its count changes.
 - ClickThroughBlocker support so mouse clicks on the reference window do not pass through to KSP.
 - Optional alternate KSP skin.
-- Window, pane, column, filter, mod, category, and skin choices are saved between sessions.
+- Main, Settings, and Export window positions, plus pane, column, filter, mod, category, and skin choices, are saved between sessions.
 
 ## Mod selection
 
@@ -192,18 +192,3 @@ Both are required by the plugin.
 The mod uses ToolbarController and can be placed on the supported KSP/Blizzy toolbar according to the user's ToolbarController configuration.
 
 
-
-- Automatically hides the PartExplorer window during scene changes and while KSP is paused; a window that was open before pausing is restored on unpause.
-
-
-## Version 0.1.72
-
-- The Settings window can now be dragged from anywhere in its unused window area, rather than only from the title bar. Interactive controls continue to receive normal mouse input.
-
-## Version 0.1.71
-
-- Moved the Compare **Export** button to the Column width row and right-aligned it.
-- Limited comparison selection to 50 parts.
-- Added **Abbreviated Descr** with a configurable maximum description length (default 120 characters).
-- Added per-row Compare compression/expansion with saved row state.
-- Moved Settings into a separate tabbed window.

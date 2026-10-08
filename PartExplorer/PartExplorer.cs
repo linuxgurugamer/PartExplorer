@@ -19,7 +19,7 @@ namespace PartExplorer
         private const int CategorySelectorPopupId = 921736;
         private const int ExportWindowId = 921739;
         private const int SettingsWindowId = 921740;
-        private const string CurrentVersion = "0.1.75";
+        private const string CurrentVersion = "0.1.76";
         internal const string ModId = "PartExplorer";
         internal const string ModName = "Part Explorer";
         private const string ToolbarButtonId = "PartExplorerButton";
@@ -59,6 +59,7 @@ namespace PartExplorer
         private bool settingsVisible;
         private Rect settingsWindowRect = new Rect(200f, 120f, 720f, 500f);
         private SettingsSectionTab settingsTab = SettingsSectionTab.Interface;
+        private bool windowPositionsDirty;
         private Vector2 compareScroll;
         private Vector2 modsScroll;
         private string search = string.Empty;
@@ -78,6 +79,7 @@ namespace PartExplorer
         // data; opening this window never rebuilds the KSP part database.
         private bool exportVisible;
         private Rect exportWindowRect = new Rect(220f, 120f, 700f, 600f);
+        private bool exportWindowPositionInitialized;
         private Vector2 exportFieldScroll;
         private PartExportScope exportScope = PartExportScope.CurrentResults;
         private PartExportFormat exportFormat = PartExportFormat.Csv;
@@ -415,6 +417,7 @@ namespace PartExplorer
 
         private void ForceHideWindow()
         {
+            SaveSettings();
             windowVisible = false;
             showModSelector = false;
             showCategorySelector = false;
@@ -442,6 +445,7 @@ namespace PartExplorer
 
         private void ToggleWindowOff()
         {
+            SaveSettings();
             windowVisible = false;
             exportVisible = false;
             settingsVisible = false;
@@ -469,6 +473,8 @@ namespace PartExplorer
             windowRect.width = windowWidth;
             windowRect.height = windowHeight;
 
+            float oldWindowX = windowRect.x;
+            float oldWindowY = windowRect.y;
             Rect actualWindowRect = ClickThruBlocker.GUILayoutWindow(WindowId, windowRect, DrawWindow, "Part Explorer",
                 GUILayout.Width(windowWidth), GUILayout.Height(windowHeight),
                 GUILayout.MinWidth(MinWindowWidth), GUILayout.MinHeight(MinWindowHeight));
@@ -483,23 +489,38 @@ namespace PartExplorer
             windowRect.height = windowHeight;
             windowRect.x = Mathf.Clamp(windowRect.x, 0f, Mathf.Max(0f, Screen.width - 120f));
             windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, Screen.height - 40f));
+            if (!Mathf.Approximately(oldWindowX, windowRect.x) || !Mathf.Approximately(oldWindowY, windowRect.y))
+                windowPositionsDirty = true;
 
             if (exportVisible)
             {
+                float oldExportX = exportWindowRect.x;
+                float oldExportY = exportWindowRect.y;
                 exportWindowRect = ClickThruBlocker.GUILayoutWindow(ExportWindowId, exportWindowRect, DrawExportWindow, "Export Parts",
                     GUILayout.Width(700f), GUILayout.Height(600f));
                 exportWindowRect.x = Mathf.Clamp(exportWindowRect.x, 0f, Mathf.Max(0f, Screen.width - exportWindowRect.width));
                 exportWindowRect.y = Mathf.Clamp(exportWindowRect.y, 0f, Mathf.Max(0f, Screen.height - 40f));
+                if (!Mathf.Approximately(oldExportX, exportWindowRect.x) || !Mathf.Approximately(oldExportY, exportWindowRect.y))
+                    windowPositionsDirty = true;
             }
 
             if (settingsVisible)
             {
+                float oldSettingsX = settingsWindowRect.x;
+                float oldSettingsY = settingsWindowRect.y;
                 settingsWindowRect = ClickThruBlocker.GUILayoutWindow(SettingsWindowId, settingsWindowRect, DrawSettingsWindow, "Part Explorer Settings",
                     GUILayout.Width(720f), GUILayout.Height(500f));
                 settingsWindowRect.x = Mathf.Clamp(settingsWindowRect.x, 0f, Mathf.Max(0f, Screen.width - settingsWindowRect.width));
                 settingsWindowRect.y = Mathf.Clamp(settingsWindowRect.y, 0f, Mathf.Max(0f, Screen.height - 40f));
+                if (!Mathf.Approximately(oldSettingsX, settingsWindowRect.x) || !Mathf.Approximately(oldSettingsY, settingsWindowRect.y))
+                    windowPositionsDirty = true;
             }
 
+            // Persist a completed window drag without writing the configuration on
+            // every MouseDrag event. rawType remains MouseUp even when DragWindow
+            // consumes the event.
+            if (windowPositionsDirty && Event.current.rawType == EventType.MouseUp)
+                SaveSettings();
         }
 
         private void EnsureStyles()
@@ -2506,7 +2527,10 @@ namespace PartExplorer
             {
                 GUILayout.FlexibleSpace();
                 if (GUILayout.Button("Close", GUILayout.Width(90f)))
+                {
                     settingsVisible = false;
+                    SaveSettings();
+                }
                 GUILayout.FlexibleSpace();
             }
 
@@ -2798,6 +2822,16 @@ namespace PartExplorer
 
                 windowWidth = Mathf.Max(MinWindowWidth, configuration.GetValue("windowWidth", DefaultWindowRect.width));
                 windowHeight = Mathf.Max(MinWindowHeight, configuration.GetValue("windowHeight", DefaultWindowRect.height));
+                windowRect.x = configuration.GetValue("windowX", DefaultWindowRect.x);
+                windowRect.y = configuration.GetValue("windowY", DefaultWindowRect.y);
+                settingsWindowRect.x = configuration.GetValue("settingsWindowX", 200f);
+                settingsWindowRect.y = configuration.GetValue("settingsWindowY", 120f);
+                exportWindowPositionInitialized = configuration.GetValue("exportWindowPositionInitialized", false);
+                if (exportWindowPositionInitialized)
+                {
+                    exportWindowRect.x = configuration.GetValue("exportWindowX", 220f);
+                    exportWindowRect.y = configuration.GetValue("exportWindowY", 120f);
+                }
                 leftPaneWidth = Mathf.Max(MinLeftPaneWidth, configuration.GetValue("leftPaneWidth", 565f));
             }
             catch (Exception ex)
@@ -2884,8 +2918,19 @@ namespace PartExplorer
                 }
                 configuration.SetValue("windowWidth", windowWidth);
                 configuration.SetValue("windowHeight", windowHeight);
+                configuration.SetValue("windowX", windowRect.x);
+                configuration.SetValue("windowY", windowRect.y);
+                configuration.SetValue("settingsWindowX", settingsWindowRect.x);
+                configuration.SetValue("settingsWindowY", settingsWindowRect.y);
+                configuration.SetValue("exportWindowPositionInitialized", exportWindowPositionInitialized);
+                if (exportWindowPositionInitialized)
+                {
+                    configuration.SetValue("exportWindowX", exportWindowRect.x);
+                    configuration.SetValue("exportWindowY", exportWindowRect.y);
+                }
                 configuration.SetValue("leftPaneWidth", leftPaneWidth);
                 configuration.save();
+                windowPositionsDirty = false;
             }
             catch (Exception ex)
             {
@@ -4011,8 +4056,12 @@ namespace PartExplorer
             float height = 600f;
             exportWindowRect.width = width;
             exportWindowRect.height = height;
-            exportWindowRect.x = Mathf.Clamp(windowRect.center.x - width * 0.5f, 0f, Mathf.Max(0f, Screen.width - width));
-            exportWindowRect.y = Mathf.Clamp(windowRect.center.y - height * 0.5f, 0f, Mathf.Max(0f, Screen.height - height));
+            if (!exportWindowPositionInitialized)
+            {
+                exportWindowRect.x = Mathf.Clamp(windowRect.center.x - width * 0.5f, 0f, Mathf.Max(0f, Screen.width - width));
+                exportWindowRect.y = Mathf.Clamp(windowRect.center.y - height * 0.5f, 0f, Mathf.Max(0f, Screen.height - height));
+                exportWindowPositionInitialized = true;
+            }
         }
 
         private void DrawExportWindow(int id)
