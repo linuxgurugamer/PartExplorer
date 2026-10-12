@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/API/">
+    <File Path="API/PartExplorerWrapper.cs" />
+  </Folder>
   <Folder Name="/Solution Items/">
     <File Path="BuildRelease.bat" />
     <File Path="Changelog.txt" />
@@ -9,4 +12,5 @@
     <File Path="README.md" />
   </Folder>
   <Project Path="PartExplorer/PartExplorer.csproj" Id="a1c85d2e-4f9b-0f5b-0dfa-649e98afefef" />
+  <Project Path="PartExplorerApiTest/PartExplorerApiTest.csproj" Id="b867a0c4-17f1-4d30-ae7b-0d1bba94a977" />
 </Solution>

@@ -1,4 +1,4 @@
-﻿using ClickThroughFix;
+using ClickThroughFix;
 using KSP.UI.Screens;
 using System;
 using System.Collections.Generic;
@@ -14,12 +14,29 @@ namespace PartExplorer
     [KSPAddon(KSPAddon.Startup.Instantly, true)]
     public sealed class PartExplorerAddon : MonoBehaviour
     {
+        /// <summary>
+        /// The persistent PartExplorer addon instance. External mods can use this
+        /// to call ShowParts() without searching the scene for the addon object.
+        /// </summary>
+        public static PartExplorerAddon Instance { get; private set; }
+
+        /// <summary>
+        /// Version of the public PartExplorer integration API.
+        /// </summary>
+        public static int ApiVersion { get { return CurrentApiVersion; } }
+
+        /// <summary>
+        /// Version of the installed PartExplorer plugin.
+        /// </summary>
+        public static string PartExplorerVersion { get { return CurrentVersion; } }
+
         private const int WindowId = 921734;
         private const int ModSelectorPopupId = 921735;
         private const int CategorySelectorPopupId = 921736;
         private const int ExportWindowId = 921739;
         private const int SettingsWindowId = 921740;
-        private const string CurrentVersion = "0.1.76";
+        private const string CurrentVersion = "0.1.81";
+        private const int CurrentApiVersion = 3;
         internal const string ModId = "PartExplorer";
         internal const string ModName = "Part Explorer";
         private const string ToolbarButtonId = "PartExplorerButton";
@@ -74,6 +91,37 @@ namespace PartExplorer
         private bool showModSelector;
         private bool showCategorySelector;
         private bool filteredOnly;
+
+        // Optional external restriction supplied through ShowParts(). When this is
+        // non-null, the Parts page can only display records that match one of these
+        // loaded AvailablePart keys. Normal PartExplorer search/category filters may
+        // further narrow that list after it has been opened.
+        private HashSet<string> externallyRestrictedPartKeys;
+        private string externalRestrictionSourceTitle = string.Empty;
+
+        // Optional part-picker state. The caller supplies the candidate universe and
+        // callbacks; PartExplorer owns only the temporary UI state.
+        private bool partPickerActive;
+        private Action<AvailablePart> partPickerSelectedCallback;
+        private Action partPickerCancelledCallback;
+
+        /// <summary>True while the main PartExplorer window is visible.</summary>
+        public bool IsOpen { get { return windowVisible; } }
+
+        /// <summary>True while the Parts universe is restricted by an external API caller.</summary>
+        public bool IsRestricted { get { return externallyRestrictedPartKeys != null; } }
+
+        /// <summary>Number of unique parts in the current external restriction.</summary>
+        public int RestrictedPartCount
+        {
+            get { return externallyRestrictedPartKeys == null ? 0 : externallyRestrictedPartKeys.Count; }
+        }
+
+        /// <summary>Optional title supplied by the external caller for the current restricted list.</summary>
+        public string RestrictionSourceTitle { get { return externalRestrictionSourceTitle ?? string.Empty; } }
+
+        /// <summary>True while PartExplorer is acting as a part picker for another mod.</summary>
+        public bool IsPickerActive { get { return partPickerActive; } }
 
         // Export window state. Exporting always uses the already-cached PartRecord
         // data; opening this window never rebuilds the KSP part database.
@@ -328,6 +376,7 @@ namespace PartExplorer
 
         private void Awake()
         {
+            Instance = this;
             DontDestroyOnLoad(gameObject);
             LoadSettings();
             LoadPartTextures();
@@ -372,6 +421,9 @@ namespace PartExplorer
 
         private void OnDestroy()
         {
+            if (ReferenceEquals(Instance, this))
+                Instance = null;
+
             GameEvents.onGameSceneLoadRequested.Remove(OnGameSceneLoadRequested);
             GameEvents.onGameSceneSwitchRequested.Remove(OnGameSceneSwitchRequested);
             GameEvents.onGamePause.Remove(OnGamePause);
@@ -387,21 +439,23 @@ namespace PartExplorer
         private void OnGameSceneSwitchRequested(GameEvents.FromToAction<GameScenes, GameScenes> scenes)
         {
             restoreWindowAfterPause = false;
-            ForceHideWindow();
+            ForceHideWindow(true);
         }
 
         private void OnGameSceneLoadRequested(GameScenes scene)
         {
             // Hide as soon as KSP requests a scene load so no PartExplorer window
-            // carries an open state across scene transitions.
+            // carries an open state across scene transitions. An active picker is
+            // cancelled because its caller/candidate context may no longer be valid.
             restoreWindowAfterPause = false;
-            ForceHideWindow();
+            ForceHideWindow(true);
         }
 
         private void OnGamePause()
         {
             restoreWindowAfterPause = windowVisible;
-            ForceHideWindow();
+            // Pause is temporary; preserve picker state so it resumes on unpause.
+            ForceHideWindow(false);
         }
 
         private void OnGameUnpause()
@@ -415,8 +469,18 @@ namespace PartExplorer
                 toolbarControl.SetTrue(false);
         }
 
-        private void ForceHideWindow()
+        private void ForceHideWindow(bool cancelPicker)
         {
+            Action pickerCancel = null;
+            if (cancelPicker && partPickerActive)
+            {
+                pickerCancel = partPickerCancelledCallback;
+                partPickerActive = false;
+                partPickerSelectedCallback = null;
+                partPickerCancelledCallback = null;
+                ClearPartListRestrictionInternal();
+            }
+
             SaveSettings();
             windowVisible = false;
             showModSelector = false;
@@ -430,9 +494,29 @@ namespace PartExplorer
 
             if (toolbarControl != null)
                 toolbarControl.SetFalse(false);
+
+            if (pickerCancel != null)
+            {
+                try { pickerCancel(); }
+                catch (Exception ex)
+                {
+                    Debug.LogError("[PartExplorer] Part picker cancellation callback failed: " + ex);
+                }
+            }
         }
 
         private void ToggleWindowOn()
+        {
+            // A normal toolbar open returns PartExplorer to its normal unrestricted
+            // browsing mode. External callers can reapply a restricted list at any
+            // time with ShowParts()/PickPart().
+            if (partPickerActive)
+                CancelPartPickerInternal(true, false);
+            ClearPartListRestrictionInternal();
+            OpenWindow();
+        }
+
+        private void OpenWindow()
         {
             EnsurePartDataCache();
             windowVisible = true;
@@ -443,13 +527,483 @@ namespace PartExplorer
                 RebuildEditorFilterCache();
         }
 
-        private void ToggleWindowOff()
+        /// <summary>
+        /// Opens the main PartExplorer window without changing the current Parts
+        /// restriction, selection, or page.
+        /// </summary>
+        public void Open()
         {
+            OpenWindow();
+            if (toolbarControl != null)
+                toolbarControl.SetTrue(false);
+        }
+
+        /// <summary>
+        /// Closes the main PartExplorer window and its child windows.
+        /// </summary>
+        public void Close()
+        {
+            ToggleWindowOff();
+            if (toolbarControl != null)
+                toolbarControl.SetFalse(false);
+        }
+
+        /// <summary>
+        /// Opens PartExplorer on the Parts page and restricts the list to the supplied
+        /// loaded KSP parts. Null entries and duplicates are ignored. Passing null or
+        /// an empty sequence opens PartExplorer with an empty Parts list.
+        /// </summary>
+        public void ShowParts(IEnumerable<AvailablePart> parts)
+        {
+            ShowParts(parts, null);
+        }
+
+        /// <summary>
+        /// Opens PartExplorer on the Parts page, restricts the list to the supplied
+        /// loaded KSP parts, and displays an optional source title above the filters.
+        /// </summary>
+        public void ShowParts(IEnumerable<AvailablePart> parts, string sourceTitle)
+        {
+            CancelPartPickerInternal(true, false);
+            EnsurePartDataCache();
+            ApplyExternalPartRestriction(parts, sourceTitle);
+
+            currentPage = WindowPage.Parts;
+            OpenWindowForExternalCaller();
+        }
+
+        /// <summary>
+        /// Convenience overload for callers that already have live Part objects.
+        /// Each Part is resolved through its AvailablePart (partInfo).
+        /// </summary>
+        public void ShowParts(IEnumerable<Part> parts)
+        {
+            ShowParts(parts, null);
+        }
+
+        /// <summary>
+        /// Convenience overload for live KSP Part objects with an optional source title.
+        /// </summary>
+        public void ShowParts(IEnumerable<Part> parts, string sourceTitle)
+        {
+            ShowParts(parts == null
+                ? null
+                : parts.Where(part => part != null).Select(part => part.partInfo), sourceTitle);
+        }
+
+        /// <summary>
+        /// Opens PartExplorer for parts identified by KSP internal part name or partUrl.
+        /// Unknown names are ignored.
+        /// </summary>
+        public void ShowParts(IEnumerable<string> partNames)
+        {
+            ShowParts(partNames, null);
+        }
+
+        /// <summary>
+        /// Opens PartExplorer for parts identified by KSP internal part name or partUrl,
+        /// with an optional source title.
+        /// </summary>
+        public void ShowParts(IEnumerable<string> partNames, string sourceTitle)
+        {
+            ShowParts(ResolveAvailableParts(partNames), sourceTitle);
+        }
+
+        /// <summary>Opens PartExplorer showing one AvailablePart and its Details pane.</summary>
+        public void ShowPart(AvailablePart part)
+        {
+            ShowParts(new[] { part });
+        }
+
+        /// <summary>Opens PartExplorer showing one live KSP Part and its Details pane.</summary>
+        public void ShowPart(Part part)
+        {
+            ShowParts(part == null ? null : new[] { part });
+        }
+
+        /// <summary>
+        /// Opens PartExplorer showing the part identified by KSP internal name or partUrl.
+        /// If the identifier is unknown, the restricted list is empty.
+        /// </summary>
+        public void ShowPart(string partName)
+        {
+            ShowParts(string.IsNullOrWhiteSpace(partName) ? null : new[] { partName });
+        }
+
+        /// <summary>
+        /// Opens the Compare page with the supplied AvailablePart objects selected.
+        /// At most 50 unique parts are selected, matching the normal Compare limit.
+        /// </summary>
+        public void CompareParts(IEnumerable<AvailablePart> parts)
+        {
+            CompareParts(parts, null);
+        }
+
+        /// <summary>
+        /// Opens the Compare page with the supplied AvailablePart objects selected and
+        /// displays an optional source title.
+        /// </summary>
+        public void CompareParts(IEnumerable<AvailablePart> parts, string sourceTitle)
+        {
+            CancelPartPickerInternal(true, false);
+            EnsurePartDataCache();
+            List<AvailablePart> requestedParts = parts == null
+                ? new List<AvailablePart>()
+                : parts.Where(part => part != null)
+                    .GroupBy(GetExternalPartKey, StringComparer.OrdinalIgnoreCase)
+                    .Where(group => !string.IsNullOrEmpty(group.Key))
+                    .Select(group => group.First())
+                    .Take(MaxComparisonParts)
+                    .ToList();
+
+            ApplyExternalPartRestriction(requestedParts, sourceTitle);
+            comparisonPartKeys.Clear();
+
+            foreach (AvailablePart availablePart in requestedParts)
+            {
+                string externalKey = GetExternalPartKey(availablePart);
+                PartRecord record = activeParts.FirstOrDefault(candidate =>
+                    string.Equals(GetExternalPartKey(candidate), externalKey, StringComparison.OrdinalIgnoreCase));
+                if (record == null)
+                    continue;
+
+                string compareKey = GetComparisonPartKey(record);
+                if (!string.IsNullOrEmpty(compareKey) &&
+                    !comparisonPartKeys.Any(existing => string.Equals(existing, compareKey, StringComparison.OrdinalIgnoreCase)))
+                    comparisonPartKeys.Add(compareKey);
+            }
+
+            currentPage = WindowPage.Compare;
+            compareScroll = Vector2.zero;
+            OpenWindowForExternalCaller();
+        }
+
+        /// <summary>Convenience Compare overload for live KSP Part objects.</summary>
+        public void CompareParts(IEnumerable<Part> parts)
+        {
+            CompareParts(parts, null);
+        }
+
+        /// <summary>Convenience Compare overload for live KSP Part objects with a source title.</summary>
+        public void CompareParts(IEnumerable<Part> parts, string sourceTitle)
+        {
+            CompareParts(parts == null
+                ? null
+                : parts.Where(part => part != null).Select(part => part.partInfo), sourceTitle);
+        }
+
+        /// <summary>
+        /// Opens Compare for parts identified by KSP internal part name or partUrl.
+        /// Unknown identifiers are ignored.
+        /// </summary>
+        public void CompareParts(IEnumerable<string> partNames)
+        {
+            CompareParts(partNames, null);
+        }
+
+        /// <summary>
+        /// Opens Compare for parts identified by KSP internal part name or partUrl,
+        /// with an optional source title.
+        /// </summary>
+        public void CompareParts(IEnumerable<string> partNames, string sourceTitle)
+        {
+            CompareParts(ResolveAvailableParts(partNames), sourceTitle);
+        }
+
+        /// <summary>
+        /// Opens PartExplorer as a part picker over the supplied AvailablePart candidates.
+        /// The selected callback receives the chosen loaded AvailablePart.
+        /// </summary>
+        public void PickPart(IEnumerable<AvailablePart> parts, Action<AvailablePart> onSelected)
+        {
+            PickPart(parts, null, onSelected, null);
+        }
+
+        /// <summary>
+        /// Opens PartExplorer as a part picker with an optional source/title caption.
+        /// </summary>
+        public void PickPart(IEnumerable<AvailablePart> parts, string sourceTitle, Action<AvailablePart> onSelected)
+        {
+            PickPart(parts, sourceTitle, onSelected, null);
+        }
+
+        /// <summary>
+        /// Opens PartExplorer as a part picker. Choosing a part closes PartExplorer and
+        /// invokes onSelected. Cancel, Close, or toolbar-hide invokes onCancelled.
+        /// </summary>
+        public void PickPart(
+            IEnumerable<AvailablePart> parts,
+            string sourceTitle,
+            Action<AvailablePart> onSelected,
+            Action onCancelled)
+        {
+            CancelPartPickerInternal(true, false);
+            EnsurePartDataCache();
+
+            List<AvailablePart> candidates = parts == null
+                ? new List<AvailablePart>()
+                : parts.Where(part => part != null)
+                    .GroupBy(GetExternalPartKey, StringComparer.OrdinalIgnoreCase)
+                    .Where(group => !string.IsNullOrEmpty(group.Key))
+                    .Select(group => group.First())
+                    .ToList();
+
+            ApplyExternalPartRestriction(candidates, sourceTitle);
+            partPickerSelectedCallback = onSelected;
+            partPickerCancelledCallback = onCancelled;
+            partPickerActive = true;
+            currentPage = WindowPage.Parts;
+            OpenWindowForExternalCaller();
+        }
+
+        /// <summary>Part-picker convenience overload for live KSP Part objects.</summary>
+        public void PickPart(IEnumerable<Part> parts, Action<AvailablePart> onSelected)
+        {
+            PickPart(parts, null, onSelected, null);
+        }
+
+        /// <summary>Part-picker convenience overload for live KSP Part objects with a title.</summary>
+        public void PickPart(IEnumerable<Part> parts, string sourceTitle, Action<AvailablePart> onSelected)
+        {
+            PickPart(parts, sourceTitle, onSelected, null);
+        }
+
+        /// <summary>Full part-picker overload for live KSP Part objects.</summary>
+        public void PickPart(
+            IEnumerable<Part> parts,
+            string sourceTitle,
+            Action<AvailablePart> onSelected,
+            Action onCancelled)
+        {
+            PickPart(parts == null
+                ? null
+                : parts.Where(part => part != null).Select(part => part.partInfo),
+                sourceTitle, onSelected, onCancelled);
+        }
+
+        /// <summary>
+        /// Part-picker overload for KSP internal part names or partUrl identifiers.
+        /// Unknown identifiers are ignored.
+        /// </summary>
+        public void PickPart(IEnumerable<string> partNames, Action<AvailablePart> onSelected)
+        {
+            PickPart(partNames, null, onSelected, null);
+        }
+
+        /// <summary>Named part-picker overload with an optional source/title caption.</summary>
+        public void PickPart(IEnumerable<string> partNames, string sourceTitle, Action<AvailablePart> onSelected)
+        {
+            PickPart(partNames, sourceTitle, onSelected, null);
+        }
+
+        /// <summary>Full named part-picker overload with selection and cancellation callbacks.</summary>
+        public void PickPart(
+            IEnumerable<string> partNames,
+            string sourceTitle,
+            Action<AvailablePart> onSelected,
+            Action onCancelled)
+        {
+            PickPart(ResolveAvailableParts(partNames), sourceTitle, onSelected, onCancelled);
+        }
+
+        /// <summary>Cancels an active picker, closes PartExplorer, and notifies the caller.</summary>
+        public void CancelPartPicker()
+        {
+            if (!partPickerActive)
+                return;
+            CancelPartPickerInternal(true, true);
+        }
+
+        /// <summary>
+        /// Removes an external part-list restriction previously set by ShowParts(),
+        /// CompareParts(), or PickPart() and returns the Parts universe to the complete
+        /// cached database. Clearing an active picker counts as cancellation.
+        /// </summary>
+        public void ClearPartListRestriction()
+        {
+            if (partPickerActive)
+                CancelPartPickerInternal(true, false);
+            ClearPartListRestrictionInternal();
+        }
+
+        private void CompletePartPicker(PartRecord record)
+        {
+            if (!partPickerActive)
+                return;
+
+            AvailablePart selectedPart = FindAvailablePart(record);
+            if (selectedPart == null)
+                return;
+
+            Action<AvailablePart> callback = partPickerSelectedCallback;
+            partPickerActive = false;
+            partPickerSelectedCallback = null;
+            partPickerCancelledCallback = null;
+            ClearPartListRestrictionInternal();
+
             SaveSettings();
             windowVisible = false;
             exportVisible = false;
             settingsVisible = false;
             DestroyRotatingPreview();
+            if (toolbarControl != null)
+                toolbarControl.SetFalse(false);
+
+            if (callback != null)
+            {
+                try { callback(selectedPart); }
+                catch (Exception ex)
+                {
+                    Debug.LogError("[PartExplorer] Part picker selection callback failed: " + ex);
+                }
+            }
+        }
+
+        private void CancelPartPickerInternal(bool notifyCaller, bool closeWindow)
+        {
+            if (!partPickerActive)
+                return;
+
+            Action callback = partPickerCancelledCallback;
+            partPickerActive = false;
+            partPickerSelectedCallback = null;
+            partPickerCancelledCallback = null;
+            ClearPartListRestrictionInternal();
+
+            if (closeWindow)
+            {
+                SaveSettings();
+                windowVisible = false;
+                exportVisible = false;
+                settingsVisible = false;
+                DestroyRotatingPreview();
+                if (toolbarControl != null)
+                    toolbarControl.SetFalse(false);
+            }
+
+            if (notifyCaller && callback != null)
+            {
+                try { callback(); }
+                catch (Exception ex)
+                {
+                    Debug.LogError("[PartExplorer] Part picker cancellation callback failed: " + ex);
+                }
+            }
+        }
+
+        private void ApplyExternalPartRestriction(IEnumerable<AvailablePart> parts, string sourceTitle)
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (parts != null)
+            {
+                foreach (AvailablePart part in parts)
+                {
+                    string key = GetExternalPartKey(part);
+                    if (!string.IsNullOrEmpty(key))
+                        keys.Add(key);
+                }
+            }
+
+            externallyRestrictedPartKeys = keys;
+            externalRestrictionSourceTitle = string.IsNullOrWhiteSpace(sourceTitle)
+                ? string.Empty
+                : sourceTitle.Trim();
+
+            // Start the caller with exactly the requested universe. The normal UI
+            // filters remain available afterwards and may further narrow that list.
+            search = string.Empty;
+            selectedMod = string.Empty;
+            selectedCategory = string.Empty;
+            biomeFilter = 0;
+            altimeterFilter = 0;
+            visualFilter = 0;
+            resourceFilter = 0;
+            anomalyFilter = 0;
+            daylightFilter = 0;
+            filteredOnly = false;
+            selectedIndex = 0;
+            listScroll = Vector2.zero;
+            detailScroll = Vector2.zero;
+            showModSelector = false;
+            showCategorySelector = false;
+            showPartContextMenu = false;
+
+            InvalidateEditorFilterCache();
+            InvalidateFilteredPartsFrameCache();
+        }
+
+        private IEnumerable<AvailablePart> ResolveAvailableParts(IEnumerable<string> partNames)
+        {
+            EnsurePartDataCache();
+            if (partNames == null)
+                return Enumerable.Empty<AvailablePart>();
+
+            var result = new List<AvailablePart>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string rawName in partNames)
+            {
+                string name = rawName == null ? string.Empty : rawName.Trim();
+                if (name.Length == 0)
+                    continue;
+
+                AvailablePart availablePart;
+                if (!availablePartById.TryGetValue(name, out availablePart) &&
+                    !availablePartByPath.TryGetValue(name, out availablePart))
+                    continue;
+
+                string key = GetExternalPartKey(availablePart);
+                if (!string.IsNullOrEmpty(key) && seen.Add(key))
+                    result.Add(availablePart);
+            }
+            return result;
+        }
+
+        private void OpenWindowForExternalCaller()
+        {
+            OpenWindow();
+            if (toolbarControl != null)
+                toolbarControl.SetTrue(false);
+        }
+
+        private void ClearPartListRestrictionInternal()
+        {
+            if (externallyRestrictedPartKeys == null && string.IsNullOrEmpty(externalRestrictionSourceTitle))
+                return;
+
+            externallyRestrictedPartKeys = null;
+            externalRestrictionSourceTitle = string.Empty;
+            selectedIndex = 0;
+            listScroll = Vector2.zero;
+            detailScroll = Vector2.zero;
+            InvalidateFilteredPartsFrameCache();
+        }
+
+        private void ToggleWindowOff()
+        {
+            Action pickerCancel = null;
+            if (partPickerActive)
+            {
+                pickerCancel = partPickerCancelledCallback;
+                partPickerActive = false;
+                partPickerSelectedCallback = null;
+                partPickerCancelledCallback = null;
+                ClearPartListRestrictionInternal();
+            }
+
+            SaveSettings();
+            windowVisible = false;
+            exportVisible = false;
+            settingsVisible = false;
+            DestroyRotatingPreview();
+
+            if (pickerCancel != null)
+            {
+                try { pickerCancel(); }
+                catch (Exception ex)
+                {
+                    Debug.LogError("[PartExplorer] Part picker cancellation callback failed: " + ex);
+                }
+            }
         }
 
         private void OnGUI()
@@ -616,7 +1170,7 @@ namespace PartExplorer
             Rect statusRect = new Rect(footerRect.x, footerRect.y, Mathf.Max(0f, footerRect.width * 0.5f - 50f), footerRect.height);
             Rect closeRect = new Rect(footerRect.center.x - 40f, footerRect.y, 80f, footerRect.height);
             GUI.Label(statusRect, footerStatus, smallStyle);
-            if (GUI.Button(closeRect, "Close"))
+            if (GUI.Button(closeRect, partPickerActive ? "Cancel" : "Close"))
             {
                 ToggleWindowOff();
                 if (toolbarControl != null)
@@ -658,13 +1212,21 @@ namespace PartExplorer
                 {
                     using (new GUILayout.HorizontalScope())
                     {
+                        if (partPickerActive)
+                            currentPage = WindowPage.Parts;
+
                         if (GUILayout.Toggle(currentPage == WindowPage.Parts, "Parts", GUI.skin.button, GUILayout.Width(90f)))
                             currentPage = WindowPage.Parts;
+
+                        bool oldEnabled = GUI.enabled;
+                        GUI.enabled = oldEnabled && !partPickerActive;
                         string compareTabCaption = "Compare (" + comparisonPartKeys.Count.ToString(CultureInfo.InvariantCulture) + ")";
                         if (GUILayout.Toggle(currentPage == WindowPage.Compare, compareTabCaption, GUI.skin.button, GUILayout.Width(110f)))
                             currentPage = WindowPage.Compare;
                         if (GUILayout.Toggle(currentPage == WindowPage.Mods, "Mods", GUI.skin.button, GUILayout.Width(90f)))
                             currentPage = WindowPage.Mods;
+                        GUI.enabled = oldEnabled;
+
                         if (GUILayout.Button(new GUIContent("Settings", "Open PartExplorer settings in a separate window"), GUILayout.Width(90f)))
                         {
                             settingsVisible = true;
@@ -709,6 +1271,31 @@ namespace PartExplorer
 
         private void DrawSearchAndSort()
         {
+            if (externallyRestrictedPartKeys != null)
+            {
+                GUILayout.BeginHorizontal();
+                string restrictionCaption = string.IsNullOrWhiteSpace(externalRestrictionSourceTitle)
+                    ? (partPickerActive ? "Select a part" : "External part list")
+                    : externalRestrictionSourceTitle;
+                string modeSuffix = partPickerActive ? " • picker" : string.Empty;
+                GUILayout.Label(
+                    restrictionCaption + ": " + externallyRestrictedPartKeys.Count.ToString(CultureInfo.InvariantCulture) + " part(s)" + modeSuffix,
+                    GUILayout.ExpandWidth(true));
+
+                if (partPickerActive)
+                {
+                    if (GUILayout.Button(new GUIContent("Cancel", "Cancel part selection and return control to the calling mod"), GUILayout.Width(75f)))
+                        CancelPartPickerInternal(true, true);
+                }
+                else if (GUILayout.Button(new GUIContent("Show All", "Remove the external part-list restriction"), GUILayout.Width(75f)))
+                {
+                    ClearPartListRestriction();
+                }
+
+                GUILayout.EndHorizontal();
+                GUILayout.Space(3f);
+            }
+
             DrawModAndCategorySelectors();
             GUILayout.Space(3f);
             GUILayout.BeginHorizontal();
@@ -1023,6 +1610,17 @@ namespace PartExplorer
         private IEnumerable<PartRecord> GetEditorFilteredUniverse()
         {
             IEnumerable<PartRecord> parts = activeParts;
+
+            if (externallyRestrictedPartKeys != null)
+            {
+                HashSet<string> restrictedKeys = externallyRestrictedPartKeys;
+                parts = parts.Where(part =>
+                {
+                    string key = GetExternalPartKey(part);
+                    return !string.IsNullOrEmpty(key) && restrictedKeys.Contains(key);
+                });
+            }
+
             if (!filteredOnly || !HighLogic.LoadedSceneIsEditor || EditorPartList.Instance == null)
                 return parts;
 
@@ -1038,6 +1636,32 @@ namespace PartExplorer
                 AvailablePart availablePart = FindAvailablePart(part);
                 return availablePart != null && visibleParts.Contains(availablePart);
             });
+        }
+
+        private static string GetExternalPartKey(AvailablePart part)
+        {
+            if (part == null)
+                return null;
+
+            if (!string.IsNullOrWhiteSpace(part.partUrl))
+                return "url|" + part.partUrl;
+            if (!string.IsNullOrWhiteSpace(part.name))
+                return "id|" + part.name;
+
+            return null;
+        }
+
+        private static string GetExternalPartKey(PartRecord part)
+        {
+            if (part == null)
+                return null;
+
+            if (!string.IsNullOrWhiteSpace(part.Path))
+                return "url|" + part.Path;
+            if (!string.IsNullOrWhiteSpace(part.Id))
+                return "id|" + part.Id;
+
+            return null;
         }
 
         private string GetEditorFilterStateKey()
@@ -1334,15 +1958,34 @@ namespace PartExplorer
             leftPaneWidth = Mathf.Clamp(leftPaneWidth, MinLeftPaneWidth, maxLeft);
             GUILayout.BeginVertical(GUILayout.Width(leftPaneWidth));
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Parts", sectionStyle);
+            GUILayout.Label(partPickerActive ? "Parts - select one" : "Parts", sectionStyle);
             GUILayout.FlexibleSpace();
             bool previousEnabled = GUI.enabled;
 
-            GUI.enabled = previousEnabled && rows.Count > 0;
-            if (GUILayout.Button(new GUIContent("Export", "Export current results, all parts, selected parts, or the current mod"), GUILayout.Width(70f)))
-                OpenExportWindow(PartExportScope.CurrentResults);
+            if (partPickerActive)
+            {
+                PartRecord selectedRecord = rows.Count > 0
+                    ? rows[Mathf.Clamp(selectedIndex, 0, rows.Count - 1)]
+                    : null;
+                AvailablePart selectedAvailablePart = selectedRecord == null ? null : FindAvailablePart(selectedRecord);
 
-            GUI.enabled = previousEnabled && rows.Count > 0 && comparisonPartKeys.Count < MaxComparisonParts;
+                GUI.enabled = previousEnabled && selectedAvailablePart != null;
+                if (GUILayout.Button(new GUIContent("Choose Part", "Return the highlighted part to the calling mod"), GUILayout.Width(95f)))
+                    CompletePartPicker(selectedRecord);
+
+                GUI.enabled = previousEnabled;
+                if (GUILayout.Button(new GUIContent("Cancel", "Cancel part selection and return control to the calling mod"), GUILayout.Width(70f)))
+                    CancelPartPickerInternal(true, true);
+
+                GUILayout.EndHorizontal();
+            }
+            else
+            {
+                GUI.enabled = previousEnabled && rows.Count > 0;
+                if (GUILayout.Button(new GUIContent("Export", "Export current results, all parts, selected parts, or the current mod"), GUILayout.Width(70f)))
+                    OpenExportWindow(PartExportScope.CurrentResults);
+
+                GUI.enabled = previousEnabled && rows.Count > 0 && comparisonPartKeys.Count < MaxComparisonParts;
             if (GUILayout.Button(new GUIContent("Select visible", "Select visible parts up to the " + MaxComparisonParts.ToString(CultureInfo.InvariantCulture) + "-part comparison limit"), GUILayout.Width(95f)))
             {
                 foreach (PartRecord visiblePart in rows)
@@ -1365,8 +2008,9 @@ namespace PartExplorer
                 comparisonPartKeys.Clear();
                 compareScroll = Vector2.zero;
             }
-            GUI.enabled = previousEnabled;
-            GUILayout.EndHorizontal();
+                GUI.enabled = previousEnabled;
+                GUILayout.EndHorizontal();
+            }
 
             GUILayout.BeginVertical(GUI.skin.box, GUILayout.ExpandHeight(true));
 
@@ -1426,7 +2070,10 @@ namespace PartExplorer
             DrawPinnedTableHeader(tableHeaderRect);
 
             GUILayout.EndVertical();
-            GUILayout.Label(rows.Count.ToString(CultureInfo.InvariantCulture) + " shown • " + comparisonPartKeys.Count.ToString(CultureInfo.InvariantCulture) + "/" + MaxComparisonParts.ToString(CultureInfo.InvariantCulture) + " selected for comparison", smallStyle);
+            if (partPickerActive)
+                GUILayout.Label(rows.Count.ToString(CultureInfo.InvariantCulture) + " candidate part(s) shown • highlight one and click Choose Part", smallStyle);
+            else
+                GUILayout.Label(rows.Count.ToString(CultureInfo.InvariantCulture) + " shown • " + comparisonPartKeys.Count.ToString(CultureInfo.InvariantCulture) + "/" + MaxComparisonParts.ToString(CultureInfo.InvariantCulture) + " selected for comparison", smallStyle);
             GUILayout.EndVertical();
         }
 
@@ -1434,6 +2081,9 @@ namespace PartExplorer
         {
             Rect cellRect = GUILayoutUtility.GetRect(CompareToggleColumnWidth, ThumbnailSize,
                 GUILayout.Width(CompareToggleColumnWidth), GUILayout.Height(ThumbnailSize));
+
+            if (partPickerActive)
+                return cellRect;
             const float toggleSize = 20f;
             Rect toggleRect = new Rect(
                 cellRect.x , //+ 2f,
@@ -2942,6 +3592,12 @@ namespace PartExplorer
         {
             parts = GetComparisonParts();
 
+            if (!string.IsNullOrWhiteSpace(externalRestrictionSourceTitle))
+            {
+                GUILayout.Label("Source: " + externalRestrictionSourceTitle, smallStyle);
+                GUILayout.Space(2f);
+            }
+
             using (new GUILayout.HorizontalScope())
             {
                 GUILayout.Label("Compare", sectionStyle);
@@ -3807,6 +4463,17 @@ namespace PartExplorer
                     BeginDetailPanel("Part Information");
                     GUILayout.Label(p.Part, titleStyle);
 
+                    if (partPickerActive)
+                    {
+                        AvailablePart pickerPart = FindAvailablePart(p);
+                        bool oldEnabled = GUI.enabled;
+                        GUI.enabled = oldEnabled && pickerPart != null;
+                        if (GUILayout.Button(new GUIContent("Choose This Part", "Return this part to the calling mod"), GUILayout.Height(30f)))
+                            CompletePartPicker(p);
+                        GUI.enabled = oldEnabled;
+                        GUILayout.Space(4f);
+                    }
+
                     if (!string.IsNullOrWhiteSpace(p.Description))
                     {
                         GUILayout.Space(3f);
@@ -3815,7 +4482,7 @@ namespace PartExplorer
                         GUILayout.Space(4f);
                     }
 
-                    if (HighLogic.LoadedSceneIsEditor)
+                    if (HighLogic.LoadedSceneIsEditor && !partPickerActive)
                     {
                         AvailablePart availablePart = FindAvailablePart(p);
                         bool oldEnabled = GUI.enabled;

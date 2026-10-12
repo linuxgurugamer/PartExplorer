@@ -190,5 +190,158 @@ Both are required by the plugin.
 ## Toolbar
 
 The mod uses ToolbarController and can be placed on the supported KSP/Blizzy toolbar according to the user's ToolbarController configuration.
+## External API
 
+The recommended integration method is the source-only wrapper in:
+
+```text
+API/PartExplorerWrapper.cs
+```
+
+Copy that single file into the consuming mod project. It uses reflection, so the
+consumer does **not** need a compile-time reference to `PartExplorer.dll`. The
+consumer still needs the normal KSP assemblies because the wrapper accepts
+`AvailablePart` and `Part` objects.
+
+### API discovery and status
+
+```csharp
+using PartExplorerAPI;
+
+if (PartExplorerWrapper.IsAvailable)
+{
+    Debug.Log("PartExplorer " + PartExplorerWrapper.PartExplorerVersion +
+              " API " + PartExplorerWrapper.ApiVersion);
+}
+```
+
+The wrapper exposes:
+
+- `ApiVersion` — numeric integration API version; the picker-capable API is version 3.
+- `PartExplorerVersion` — installed PartExplorer version string.
+- `IsInstalled` — the PartExplorer assembly and basic API were found.
+- `IsAvailable` — the API is found and `PartExplorerAddon.Instance` is ready.
+- `IsOpen` — the main PartExplorer window is visible.
+- `IsRestricted` — an external caller currently restricts the Parts universe.
+- `RestrictedPartCount` — number of unique parts in that restriction.
+- `RestrictionSourceTitle` — current optional source/caller title.
+- `IsPickerActive` — PartExplorer is currently waiting for a picker selection.
+- `LastError` — the most recent wrapper failure message.
+
+### Window control
+
+```csharp
+PartExplorerWrapper.Open();
+PartExplorerWrapper.Close();
+```
+
+`Open()` preserves the current PartExplorer page and external restriction.
+
+### Show a restricted list
+
+`ShowParts()` accepts `IEnumerable<AvailablePart>`, `IEnumerable<Part>`, or
+`IEnumerable<string>`. String identifiers may be either the KSP internal part name
+or `partUrl`.
+
+```csharp
+PartExplorerWrapper.ShowParts(parts);
+PartExplorerWrapper.ShowParts(parts, "VesselPlanner - Suggested Engines");
+PartExplorerWrapper.ShowParts(partNames, "My Mod - Candidate Parts");
+```
+
+It opens PartExplorer, switches to the Parts page, clears the normal PartExplorer
+filters, and restricts the list to the supplied parts. An empty list intentionally
+displays no parts. A supplied source title is shown above the restricted list.
+
+### Show one part
+
+```csharp
+PartExplorerWrapper.ShowPart(availablePart);
+PartExplorerWrapper.ShowPart(livePart);
+PartExplorerWrapper.ShowPart("liquidEngine2");
+```
+
+The part is opened as a one-part restricted list with its Details pane available.
+
+### Open Compare directly
+
+`CompareParts()` accepts the same three input forms and optional source title:
+
+```csharp
+PartExplorerWrapper.CompareParts(parts, "VesselPlanner - Engine Comparison");
+```
+
+PartExplorer opens directly on Compare, deduplicates the supplied parts, and uses
+at most 50 parts to match the normal comparison limit.
+
+### Use PartExplorer as a part picker
+
+API version 3 adds picker mode. The calling mod supplies candidate parts and
+callbacks. PartExplorer opens on the restricted candidate list; the user can inspect
+part details, highlight a row, and click **Choose Part** (or **Choose This Part** in
+the Details pane). Selection closes PartExplorer and passes the chosen
+`AvailablePart` back to the caller. Cancel, Close, toolbar-hide, or a scene change
+invokes the optional cancellation callback. Pausing KSP temporarily hides the picker
+without cancelling it. While picker mode is active, the normal **Add Part to Editor**
+action is hidden so the only part action is choosing the part for the calling mod.
+
+```csharp
+PartExplorerWrapper.PickPart(
+    candidateParts,
+    "VesselPlanner - Select an Engine",
+    selectedPart =>
+    {
+        Debug.Log("Selected: " + selectedPart.name);
+    },
+    () =>
+    {
+        Debug.Log("Part selection cancelled");
+    });
+```
+
+`PickPart()` accepts `IEnumerable<AvailablePart>`, `IEnumerable<Part>`, or
+`IEnumerable<string>`. String identifiers may be KSP internal part names or
+`partUrl`. The selection callback always receives the chosen `AvailablePart`.
+
+An active picker can also be cancelled programmatically:
+
+```csharp
+PartExplorerWrapper.CancelPartPicker();
+```
+
+Use `PartExplorerWrapper.IsPickerActive` to test whether PartExplorer is currently
+waiting for a selection.
+
+### Clear the restriction
+
+```csharp
+PartExplorerWrapper.ClearPartListRestriction();
+```
+
+The Parts page also shows a **Show All** button while an external restriction is
+active. Opening PartExplorer normally from its toolbar button clears the external
+restriction as well.
+
+`ShowParts()`, `ShowPart()`, `CompareParts()`, `PickPart()`, `CancelPartPicker()`,
+`Open()`, `Close()`, and `ClearPartListRestriction()` return `bool` from the wrapper. On failure, inspect
+`PartExplorerWrapper.LastError`.
+
+`Reset()` clears the wrapper's cached reflection metadata and is primarily useful
+for test/reload cases.
+
+### Direct API
+
+Mods that intentionally reference `PartExplorer.dll` can call the same API directly:
+
+```csharp
+var api = PartExplorer.PartExplorerAddon.Instance;
+if (api != null)
+{
+    api.ShowParts(parts, "My Mod");
+    api.CompareParts(compareParts, "My Mod Comparison");
+    api.PickPart(parts, "My Mod - Pick a Part",
+        selected => Debug.Log("Picked " + selected.name),
+        () => Debug.Log("Picker cancelled"));
+}
+```
 

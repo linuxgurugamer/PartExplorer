@@ -1,5 +1,21 @@
 Changelog
 
+0.1.81
+	Added API/PartExplorerWrapper.cs, a source-only reflection wrapper for other mods
+	Hide Add Part to Editor while PartExplorer is being used as a part picker
+	Added PickPart() overloads for AvailablePart, Part, and string candidate lists
+	Added selection and cancellation callbacks; selected callbacks receive AvailablePart
+	Added IsPickerActive and CancelPartPicker() to the direct API and reflection wrapper
+	Added picker UI with Choose Part/Choose This Part controls and modal candidate-list behavior
+	Closing/hiding PartExplorer or changing scenes cancels an active picker; pause/unpause preserves it
+	Updated PartExplorerApiTest to exercise picker selection and cancellation
+	Added Open() and Close() API methods
+	Added ShowParts() overloads for internal part names/partUrl strings and optional source titles
+	Added ShowPart() overloads for AvailablePart, Part, and string identifiers
+	Added CompareParts() overloads for AvailablePart, Part, and string identifiers, enforcing the 50-part comparison limit
+	Wrapper exposes IsInstalled, IsAvailable, LastError, both ShowParts() overloads, and ClearPartListRestriction() without a compile-time PartExplorer.dll reference
+	Added PartExplorerApiTest to test the wrapper
+
 0.1.76
 	Added saving of window positions
 

@@ -1,0 +1,56 @@
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{B867A0C4-17F1-4D30-AE7B-0D1BBA94A977}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>PartExplorerApiTest</RootNamespace>
+    <AssemblyName>PartExplorerApiTest</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>7.3</LangVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+    <TargetFrameworkProfile />
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="$(KSPDIR)\KSP_x64_Data\Managed\Assembly*.dll">
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="$(KSPDIR)\KSP_x64_Data\Managed\UnityEngine*.dll">
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <Compile Include="PartExplorerApiTest.cs" />
+    <Compile Include="..\API\PartExplorerWrapper.cs">
+      <Link>PartExplorerWrapper.cs</Link>
+    </Compile>
+  </ItemGroup>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
+  <PropertyGroup Condition=" '$(KSPDIR)' != '' ">
+    <PostBuildEvent>if not exist "$(KSPDIR)\GameData\PartExplorerApiTest\Plugins" mkdir "$(KSPDIR)\GameData\PartExplorerApiTest\Plugins"
+copy /Y "$(TargetPath)" "$(KSPDIR)\GameData\PartExplorerApiTest\Plugins\PartExplorerApiTest.dll"</PostBuildEvent>
+  </PropertyGroup>
+</Project>
